@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from sentinel_eval.models import EvalPrediction
+from sentinel_eval.observability import traced_layer
 
 # Labels that read as "elevated concern" across both known taxonomies
 # (Sentinel's risk_level, Synapse's status). Callers scoring a system with a
@@ -101,6 +102,7 @@ DEFAULT_CHECKS = (
 )
 
 
+@traced_layer("heuristics_check")
 def run_heuristics(
     prediction: EvalPrediction,
     checks=DEFAULT_CHECKS,

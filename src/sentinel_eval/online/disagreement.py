@@ -13,6 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from sentinel_eval.models import EvalPrediction
+from sentinel_eval.observability import traced_layer
 
 # Each callable wraps one provider/config variant of the same
 # system-under-test, e.g. {"gemini": sentinel_via_gemini, "openrouter":
@@ -29,6 +30,7 @@ class DisagreementResult:
     confidence_spread: float
 
 
+@traced_layer("cross_provider_disagreement")
 def score_disagreement(
     input_data: dict,
     providers: dict[str, ProviderCall],

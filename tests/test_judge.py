@@ -1,0 +1,73 @@
+from opentelemetry import trace
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+from sentinel_eval.models import EvalPrediction
+from sentinel_eval.online import judge as judge_module
+from sentinel_eval.online.judge import JudgeCircuitBreaker, JudgeSource
+
+
+def _capture_spans():
+    exporter = InMemorySpanExporter()
+    trace.get_tracer_provider().add_span_processor(SimpleSpanProcessor(exporter))
+    return exporter
+
+
+def _prediction() -> EvalPrediction:
+    return EvalPrediction(
+        id="txn-9001",
+        raw_output={"status": "degraded", "anomaly_score": 0.55},
+        label="high",
+        confidence=0.5,
+    )
+
+
+def test_ollama_timeout_then_flash_success_records_flash_source(monkeypatch):
+    """The user's own example: Ollama times out, Flash succeeds. Both
+    attempts should appear as nested spans, and the outcome is GEMINI_FLASH.
+    """
+    exporter = _capture_spans()
+
+    def ollama_times_out(prediction, context):
+        raise TimeoutError("ollama unreachable over tailscale")
+
+    def flash_succeeds(prediction, context):
+        return "high"
+
+    monkeypatch.setattr(judge_module, "_call_ollama", ollama_times_out)
+    monkeypatch.setattr(judge_module, "_call_gemini_flash", flash_succeeds)
+
+    breaker = JudgeCircuitBreaker()
+    verdict = breaker.judge(_prediction(), context="elevated label, low confidence")
+
+    assert verdict.source is JudgeSource.GEMINI_FLASH
+    assert verdict.verdict_label == "high"
+    assert breaker.metrics.scored_by_gemini_flash == 1
+    assert breaker.metrics.pct_scored_by_judge == 1.0
+
+    span_names = [s.name for s in exporter.get_finished_spans()]
+    assert span_names == ["ollama_attempt", "flash_attempt", "judge_call"]
+
+
+def test_both_sources_unavailable_falls_back_to_heuristics(monkeypatch):
+    exporter = _capture_spans()
+
+    def ollama_fails(prediction, context):
+        raise ConnectionError("ollama down")
+
+    def flash_fails(prediction, context):
+        raise ConnectionError("flash down")
+
+    monkeypatch.setattr(judge_module, "_call_ollama", ollama_fails)
+    monkeypatch.setattr(judge_module, "_call_gemini_flash", flash_fails)
+
+    breaker = JudgeCircuitBreaker()
+    verdict = breaker.judge(_prediction(), context="elevated label, low confidence")
+
+    assert verdict.source is JudgeSource.HEURISTICS_FALLBACK
+    assert verdict.verdict_label is None
+    assert breaker.metrics.scored_by_heuristics_fallback == 1
+    assert breaker.metrics.pct_scored_by_judge == 0.0
+
+    span_names = [s.name for s in exporter.get_finished_spans()]
+    assert span_names == ["ollama_attempt", "flash_attempt", "heuristics_fallback", "judge_call"]

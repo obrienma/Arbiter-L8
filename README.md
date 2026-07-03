@@ -101,10 +101,47 @@ what earlier layers flag as ambiguous — not on every item.
 2. For offline scoring: build an `EvalDataset` (see
    `tests/fixtures/compliance_dataset.json` for the shape) and call
    `run_eval(your_callable, dataset)`.
-3. For online scoring: run `online.heuristics.run_heuristics()` on each
-   prediction first; only escalate to disagreement/consistency/judge layers
-   for predictions it flags. (Layers 2–4 are scaffolded interfaces today,
-   not wired into a single pipeline function yet.)
+3. For online scoring: call `online.pipeline.evaluate_item(prediction, ...)`.
+   It always runs heuristics first, then only escalates to
+   disagreement/consistency/judge for predictions heuristics flags — and
+   only for the layers whose dependency (`providers`, `embed_fn`, `judge`)
+   you actually pass in. A layer you don't wire up is skipped, not an
+   error.
+
+## Observability
+
+Every layer function and `evaluate_item` are wrapped in `@traced_layer(...)`
+(`sentinel_eval.observability.decorators`), which is both a decorator and a
+context manager — the same helper wraps `run_heuristics` as a whole
+function and wraps individual attempts inside `JudgeCircuitBreaker.judge()`
+as inline blocks (`ollama_attempt`, `flash_attempt`, `heuristics_fallback`),
+so a Tempo trace for one scored item shows the full circuit-breaker path —
+e.g. an Ollama timeout followed by a Gemini Flash success — not just the
+final outcome.
+
+Traces and metrics both export via OTLP/HTTP to
+`${OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces` and `/v1/metrics`
+(`OTEL_EXPORTER_OTLP_ENDPOINT` defaults to `http://localhost:4318`,
+`OTEL_SERVICE_NAME` defaults to `sentinel-eval`) — the same Collector
+endpoint EventHorizon and Synapse-L4 export to, so all three show up
+distinctly in Grafana/Tempo. Metrics:
+
+- `sentinel_eval.judge.outcome` (counter, labeled `source=ollama|flash|
+  fallback`) — the "% scored by judge vs fallback" signal from
+  `docs/adr/0001-standalone-module.md`.
+- `sentinel_eval.layer.latency` (histogram, labeled `layer=...`) — per-layer
+  latency for the four online layers.
+- `sentinel_eval.harness.metric` (gauge, labeled `metric=precision|recall|
+  f1|accuracy`, `label=<label>|overall`) — emitted once per `run_eval()`
+  call, so a prompt/model change shows up as a step change in Grafana.
+
+The SDK is initialized as an import-time side effect
+(`sentinel_eval/observability/tracing.py`, `metrics.py`) rather than behind
+a lazily-invoked init function — see that module's docstring for why:
+Synapse-L4's current pattern (configuring OTel inside a FastAPI `lifespan`
+handler, after the app and its routes are already constructed) is the
+suspected cause of its trace-fragmentation bug, and this repo deliberately
+avoids reproducing that ordering.
 
 ## Development
 
@@ -112,3 +149,11 @@ what earlier layers flag as ambiguous — not on every item.
 uv sync                 # install dependencies
 uv run pytest           # run the test suite
 ```
+
+Running the test suite without a local OTel Collector at
+`localhost:4318` is expected to print harmless "connection refused" retry
+warnings on process exit — the same "additive observability" posture
+Synapse-L4 already uses (instrumentation degrades gracefully; it never
+affects correctness). No timeout override is configured, matching
+EventHorizon's and Synapse-L4's exporters, both of which also rely on SDK
+defaults.

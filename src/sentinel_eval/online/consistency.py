@@ -20,6 +20,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from sentinel_eval.models import EvalPrediction
+from sentinel_eval.observability import traced_layer
 
 # Must be backed by the system-under-test's own embedding driver/config —
 # e.g. a thin wrapper calling Sentinel-L7's App\Services\EmbeddingService
@@ -35,6 +36,7 @@ class ConsistencyResult:
     consistent: bool
 
 
+@traced_layer("embedding_consistency")
 def score_consistency(
     prediction: EvalPrediction,
     text: str,

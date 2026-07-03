@@ -23,7 +23,10 @@ import logging
 from dataclasses import dataclass, field
 from enum import Enum
 
+from opentelemetry import trace
+
 from sentinel_eval.models import EvalPrediction
+from sentinel_eval.observability import judge_outcome_counter, traced_layer
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +67,7 @@ class JudgeMetrics:
             self.scored_by_gemini_flash += 1
         else:
             self.scored_by_heuristics_fallback += 1
+        judge_outcome_counter.add(1, {"source": source.value})
 
     @property
     def pct_scored_by_judge(self) -> float:
@@ -97,19 +101,28 @@ class JudgeCircuitBreaker:
 
     metrics: JudgeMetrics = field(default_factory=JudgeMetrics)
 
+    @traced_layer("judge_call")
     def judge(self, prediction: EvalPrediction, context: str) -> JudgeVerdict:
         """Attempt to get a judge verdict for an ambiguous prediction.
 
         `context` is caller-supplied evidence for why this prediction was
         flagged (e.g. the heuristic flags / disagreement / consistency
         results from layers 1-3) — TODO: define once those layers exist.
+
+        Each attempt in the fallback chain gets its own nested span
+        (ollama_attempt / flash_attempt / heuristics_fallback) so a trace
+        shows the full circuit-breaker path — e.g. an Ollama timeout
+        followed by a Gemini Flash success — not just the final outcome.
         """
+        trace.get_current_span().set_attribute("prediction_id", prediction.id)
+
         # NotImplementedError is re-raised rather than treated as a
         # fallback trigger: until _call_ollama/_call_gemini_flash are wired
         # up, calling judge() should fail loudly, not silently report every
         # verdict as heuristics_fallback.
         try:
-            label = _call_ollama(prediction, context)
+            with traced_layer("ollama_attempt"):
+                label = _call_ollama(prediction, context)
             self.metrics.record(JudgeSource.OLLAMA)
             return JudgeVerdict(
                 prediction_id=prediction.id,
@@ -125,7 +138,8 @@ class JudgeCircuitBreaker:
             )
 
         try:
-            label = _call_gemini_flash(prediction, context)
+            with traced_layer("flash_attempt"):
+                label = _call_gemini_flash(prediction, context)
             self.metrics.record(JudgeSource.GEMINI_FLASH)
             return JudgeVerdict(
                 prediction_id=prediction.id,
@@ -140,7 +154,9 @@ class JudgeCircuitBreaker:
                 prediction.id,
             )
 
-        self.metrics.record(JudgeSource.HEURISTICS_FALLBACK)
+        with traced_layer("heuristics_fallback"):
+            self.metrics.record(JudgeSource.HEURISTICS_FALLBACK)
+
         return JudgeVerdict(
             prediction_id=prediction.id,
             source=JudgeSource.HEURISTICS_FALLBACK,

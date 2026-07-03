@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from sentinel_eval.models import EvalDataset, EvalPrediction, EvalReport, LabelMetrics
+from sentinel_eval.observability import record_harness_metrics
 
 SystemUnderTest = Callable[[dict], EvalPrediction]
 
@@ -76,10 +77,12 @@ def run_eval(system_under_test: SystemUnderTest, dataset: EvalDataset) -> EvalRe
     total = len(expected_labels)
     accuracy = correct / total if total > 0 else 0.0
 
-    return EvalReport(
+    report = EvalReport(
         total=total,
         correct=correct,
         accuracy=accuracy,
         per_label=per_label,
         predictions=predictions,
     )
+    record_harness_metrics(report)
+    return report
