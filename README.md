@@ -143,6 +143,17 @@ handler, after the app and its routes are already constructed) is the
 suspected cause of its trace-fragmentation bug, and this repo deliberately
 avoids reproducing that ordering.
 
+## Configuration
+
+`src/sentinel_eval/config.py` holds env-var-with-default settings for
+calling real systems-under-test (same style as `observability/_env.py`):
+`SYNAPSE_L4_BASE_URL`, `SENTINEL_L7_MCP_URL`, `OLLAMA_JUDGE_HOST`/
+`OLLAMA_JUDGE_MODEL` (remote, over Tailscale — LLM-as-judge only),
+`OLLAMA_EMBEDDING_HOST`/`OLLAMA_EMBEDDING_MODEL` (local — mirrors
+Sentinel-L7's own embedding host, a deliberately different machine from
+the judge's), and `GEMINI_API_KEY`/`GEMINI_FLASH_URL` (same env var names
+Sentinel-L7 uses, so one value covers both services).
+
 ## Development
 
 ```bash
