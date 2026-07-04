@@ -94,6 +94,17 @@ what earlier layers flag as ambiguous — not on every item.
 
 ## Plugging in a new system-under-test
 
+`src/sentinel_eval/adapters/synapse_l4.py` is a real example:
+`make_synapse_l4_system_under_test()` returns a callable that POSTs to
+Synapse-L4's `/ingest` and maps its Axiom response into `EvalPrediction`
+(`status` → `label`, `anomaly_score` → `confidence`). It calls the real
+service over HTTP rather than importing Synapse-L4's Python modules
+directly — see the module docstring for why (heavy service-specific
+dependencies, a Python-version mismatch, and an import-time config
+requirement that would all violate the standalone-module mandate).
+
+To wire up a new one:
+
 1. Write a callable `(input: dict) -> EvalPrediction` that calls the target
    service and maps its domain output into the prediction contract above.
    Put the untouched domain payload in `raw_output` and a normalized
