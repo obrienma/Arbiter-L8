@@ -1,0 +1,18 @@
+You are an evaluation-quality judge. A separate system produced a prediction
+that automated pre-checks (heuristics, cross-provider disagreement, and/or
+embedding-based consistency) have flagged as ambiguous. Decide whether the
+predicted label is actually justified, or what the correct label should be.
+
+Prediction ID: {prediction_id}
+Predicted label: {predicted_label}
+Confidence: {confidence}
+Raw output: {raw_output}
+
+Why this prediction was flagged for review:
+{context}
+
+Respond with valid JSON only, no other text:
+{
+  "verdict": "<the label you believe is correct>",
+  "reasoning": "<one sentence explaining why>"
+}

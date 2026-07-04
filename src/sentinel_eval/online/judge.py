@@ -19,16 +19,48 @@ not intended to run on every prediction.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
+
+import httpx
 
 from opentelemetry import trace
 
+from sentinel_eval import config
 from sentinel_eval.models import EvalPrediction
 from sentinel_eval.observability import judge_outcome_counter, traced_layer
 
 logger = logging.getLogger(__name__)
+
+# repo_root/prompts/judge.txt — see prompts/judge.md for the versioned
+# convention this mirrors (Sentinel-L7's prompts/*.md + *.txt pairing).
+_PROMPT_PATH = Path(__file__).resolve().parents[3] / "prompts" / "judge.txt"
+
+
+def _render_prompt(prediction: EvalPrediction, context: str) -> str:
+    """Literal placeholder substitution, not str.format() — the template's
+    JSON response example contains literal `{`/`}` that str.format() would
+    otherwise try to interpolate. Mirrors Sentinel-L7's
+    AbstractComplianceDriver strtr()/file_get_contents() convention.
+    """
+    template = _PROMPT_PATH.read_text()
+    replacements = {
+        "{prediction_id}": prediction.id,
+        "{predicted_label}": prediction.label,
+        "{confidence}": str(prediction.confidence),
+        "{raw_output}": json.dumps(prediction.raw_output),
+        "{context}": context,
+    }
+    for placeholder, value in replacements.items():
+        template = template.replace(placeholder, value)
+    return template
+
+
+def _parse_verdict(content: str) -> str:
+    return json.loads(content)["verdict"]
 
 
 class JudgeSource(str, Enum):
@@ -78,21 +110,53 @@ class JudgeMetrics:
 
 
 def _call_ollama(prediction: EvalPrediction, context: str) -> str:
-    """TODO: call remote Ollama over Tailscale (partner-owned host).
+    """Call the remote Ollama judge over Tailscale (partner-owned host).
 
-    Must raise (e.g. httpx.TimeoutException, httpx.ConnectError, or a
-    custom JudgeUnavailable) on failure/timeout so the circuit breaker can
-    fall through to the next source — do not return a sentinel value.
+    Raises (httpx.HTTPStatusError, httpx.TimeoutException,
+    httpx.ConnectError, json.JSONDecodeError, KeyError) on any failure so
+    the circuit breaker falls through to the next source — never returns a
+    sentinel value.
     """
-    raise NotImplementedError("Ollama judge call not yet implemented")
+    prompt = _render_prompt(prediction, context)
+    response = httpx.post(
+        f"{config.ollama_judge_host()}/api/chat",
+        json={
+            "model": config.ollama_judge_model(),
+            "messages": [{"role": "user", "content": prompt}],
+            "format": "json",
+            "stream": False,
+            # qwen3.5 is a hybrid reasoning model; without this it emits a
+            # verbose message.thinking trace before answering, ~20x slower
+            # for no gain here — same gotcha as Sentinel-L7's OllamaDriver.
+            "think": False,
+        },
+        timeout=30.0,
+    )
+    response.raise_for_status()
+    return _parse_verdict(response.json()["message"]["content"])
 
 
 def _call_gemini_flash(prediction: EvalPrediction, context: str) -> str:
-    """TODO: call Gemini Flash free tier as the secondary fallback.
+    """Call Gemini Flash free tier as the secondary fallback.
 
     Same contract as _call_ollama: raise on failure/timeout, don't swallow.
     """
-    raise NotImplementedError("Gemini Flash fallback call not yet implemented")
+    api_key = config.gemini_api_key()
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is not set")
+
+    prompt = _render_prompt(prediction, context)
+    response = httpx.post(
+        f"{config.gemini_flash_url()}?key={api_key}",
+        json={
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"responseMimeType": "application/json"},
+        },
+        timeout=15.0,
+    )
+    response.raise_for_status()
+    content = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+    return _parse_verdict(content)
 
 
 @dataclass

@@ -92,13 +92,31 @@ what earlier layers flag as ambiguous — not on every item.
    availability is tracked as its own metric
    (`JudgeMetrics.pct_scored_by_judge`) rather than hidden — a judge that
    silently falls back on every call is itself a signal worth seeing.
-   **Circuit breaker scaffolded; Ollama/Flash calls are `TODO`.**
+   **Implemented and live-verified.** Both calls force strict-JSON output
+   at the API level (Ollama's `"format": "json"`, Gemini's
+   `generationConfig.responseMimeType`) and load their shared prompt from
+   `prompts/judge.txt` (versioned in `prompts/judge.md`, mirroring
+   Sentinel-L7's `prompts/*.md`+`*.txt` convention) rather than hardcoding
+   the prompt text inline. A real call against the Tailscale Ollama host
+   (`qwen3.5:9b-q4_K_M`) returned a genuine verdict in ~12s; a real call to
+   Gemini Flash correctly raised `httpx.HTTPStatusError` on a live 429
+   (free-tier quota exhausted), confirming the fail-through contract holds
+   against a real failure, not just a mocked one.
 
    This eval judge is distinct from Sentinel-L7's `prompts/synapse-l4-judge.md`,
    which scores `anomaly_score` for production routing — different purpose,
    different consumer. Before this judge is used to score unlabeled
    traffic, its verdicts should be validated against a labeled dataset via
-   the offline `run_eval` path first.
+   the offline `run_eval` path first — **deferred**: a real live run of
+   `judge_as_system_under_test` against `tests/fixtures/compliance_dataset.json`
+   scored only 6.7% accuracy, but inspection showed the judge reasoning
+   correctly and just answering in the *wrong taxonomy* — that fixture's
+   `raw_output` is Synapse-shaped (`status`/`anomaly_score`) while its
+   `expected_label` is Sentinel's `risk_level` vocabulary, a pre-existing
+   mismatch invisible to `run_eval()` (which never inspects `raw_output`,
+   only compares `label`) until something reasoned over the raw fields
+   directly. Full validation is deferred to Step 7 (ground-truth export),
+   which will produce a taxonomy-consistent Sentinel-shaped fixture.
 
 ## Plugging in a new system-under-test
 
