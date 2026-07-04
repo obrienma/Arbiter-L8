@@ -115,7 +115,7 @@ what earlier layers flag as ambiguous — not on every item.
    `expected_label` is Sentinel's `risk_level` vocabulary, a pre-existing
    mismatch invisible to `run_eval()` (which never inspects `raw_output`,
    only compares `label`) until something reasoned over the raw fields
-   directly. Full validation is deferred to Step 7 (ground-truth export),
+   directly. Full validation is deferred to Step 8 (ground-truth export),
    which will produce a taxonomy-consistent Sentinel-shaped fixture.
 
 ## Plugging in a new system-under-test

@@ -53,12 +53,12 @@ that `run_eval()` never surfaces on its own, since it only ever compares
 a component that actually reasons over `raw_output` content (the judge) to
 expose it.
 
-### Decision: Defer Full Judge Validation to Step 7
+### Decision: Defer Full Judge Validation to Step 8
 
 Presented the finding and three options (fix the prompt to enumerate the
 target taxonomy now, build a small throwaway Sentinel-shaped fixture just
-for judge validation, or defer to step 7's ground-truth export). User chose
-deferral: step 7 already plans to export real Sentinel-shaped
+for judge validation, or defer to step 8's ground-truth export). User chose
+deferral: step 8 already plans to export real Sentinel-shaped
 `{transaction, is_threat}` pairs from `TransactionStreamService`, which
 will be a taxonomy-consistent fixture the judge can be meaningfully scored
 against. Marking step 5 done on implementation + a real single-example

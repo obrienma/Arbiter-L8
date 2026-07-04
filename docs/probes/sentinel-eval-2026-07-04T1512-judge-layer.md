@@ -64,17 +64,17 @@ deck: Rhizome::sentinel-eval
 tags: [sentinel-eval, fixture-defect]
 ---
 Q: Why was full judge validation against the ADR's required fixture-based
-gate deferred to step 7 rather than fixed immediately in step 5?
+gate deferred to step 8 rather than fixed immediately in step 5?
 
-A: Step 7 (ground-truth export) already plans to export real
+A: Step 8 (ground-truth export) already plans to export real
 Sentinel-shaped `{transaction, is_threat}` pairs from
 `TransactionStreamService` — a taxonomy-consistent fixture the judge can
 be meaningfully scored against. Patching the prompt or building a
 throwaway fixture just to pass validation now would measure the judge
-against synthetic conditions that don't match what step 7 will produce
+against synthetic conditions that don't match what step 8 will produce
 anyway; the user chose to defer rather than do that work twice.
 
-Extra: sentinel-eval · Decision: Defer Full Judge Validation to Step 7
+Extra: sentinel-eval · Decision: Defer Full Judge Validation to Step 8
 See: docs/journal/sentinel-eval-2026-07-04T1512-judge-layer.md
 
 ---
