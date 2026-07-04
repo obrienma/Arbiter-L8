@@ -16,6 +16,17 @@ from opentelemetry.sdk.resources import Resource
 from sentinel_eval.models import EvalReport
 from sentinel_eval.observability._env import otlp_endpoint, service_name
 
+# No explicit force_flush() is needed anywhere in this codebase, including
+# for a one-shot run_eval() invocation that exits right after recording its
+# gauge readings: MeterProvider registers an atexit hook, and
+# PeriodicExportingMetricReader's background thread runs one final collect()
+# + export the moment shutdown() fires — before the 60s default
+# export_interval_millis would otherwise elapse. Verified live against a
+# real Collector: a script that calls the judge circuit breaker once and
+# exits normally (no force_flush call) still lands in Prometheus. The only
+# case this doesn't cover is a hard process kill (SIGKILL/OOM) that skips
+# atexit entirely — a risk every OTel-instrumented service in this suite
+# already accepts, not something specific to sentinel-eval.
 _reader = PeriodicExportingMetricReader(
     OTLPMetricExporter(endpoint=f"{otlp_endpoint()}/v1/metrics")
 )
