@@ -1,0 +1,52 @@
+{
+  "examples": [
+    {
+      "input": {"source_id": "synth-eh-1", "payload": {"raw": {"payload": {"status": "passed", "durationMs": 120}}, "processed": {"classification": "normal", "domain": "aml"}}},
+      "expected_label": "nominal"
+    },
+    {
+      "input": {"source_id": "synth-eh-2", "payload": {"raw": {"payload": {"status": "success", "value": 45}}, "processed": {"classification": "normal", "domain": "gdpr"}}},
+      "expected_label": "nominal"
+    },
+    {
+      "input": {"source_id": "synth-eh-3", "payload": {"raw": {"payload": {"status": "failed", "durationMs": 800}}, "processed": {"classification": "normal", "domain": "hipaa"}}},
+      "expected_label": "critical"
+    },
+    {
+      "input": {"source_id": "synth-eh-4", "payload": {"raw": {"payload": {"status": "error", "durationMs": 650}}, "processed": {"classification": "warning"}}},
+      "expected_label": "critical"
+    },
+    {
+      "input": {"source_id": "synth-eh-5", "payload": {"raw": {"payload": {"status": "passed", "value": 10}}, "processed": {"classification": "unrelated_tag"}}},
+      "expected_label": "nominal"
+    },
+    {
+      "input": {"source_id": "synth-eh-6", "payload": {"raw": {"payload": {"status": "", "durationMs": 50}}, "processed": {"classification": "normal", "domain": "aml"}}},
+      "expected_label": "nominal"
+    },
+    {
+      "input": {"source_id": "synth-eh-7", "payload": {"raw": {"payload": {"durationMs": 300}}, "processed": {"classification": "warning"}}},
+      "expected_label": "degraded"
+    },
+    {
+      "input": {"source_id": "synth-eh-8", "payload": {"raw": {"payload": {"durationMs": 999}}, "processed": {"classification": "critical", "domain": "gdpr"}}},
+      "expected_label": "critical"
+    },
+    {
+      "input": {"source_id": "synth-eh-9", "payload": {"raw": {"payload": {"durationMs": 200}}, "processed": {"classification": "unrelated_tag", "domain": "not-a-real-domain"}}},
+      "expected_label": "degraded"
+    },
+    {
+      "input": {"source_id": "synth-eh-10", "payload": {"raw": {"payload": {"status": "passed"}}, "processed": {"classification": "normal"}}},
+      "expected_label": "nominal"
+    },
+    {
+      "input": {"source_id": "synth-eh-11", "payload": {"raw": {"payload": {"status": "failed", "value": 1500}}, "processed": {"classification": "critical", "domain": "hipaa"}}},
+      "expected_label": "critical"
+    },
+    {
+      "input": {"source_id": "synth-eh-12", "payload": {"raw": {"payload": {"status": "success", "value": 77}}, "processed": {"classification": "unrelated_tag", "domain": "gdpr"}}},
+      "expected_label": "nominal"
+    }
+  ]
+}

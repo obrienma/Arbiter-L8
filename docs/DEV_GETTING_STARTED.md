@@ -121,11 +121,50 @@ curl -s -X POST http://127.0.0.1:8000/ingest \
   -d '{"source_id": "manual-check-1", "payload": {"metric": "test"}}'
 ```
 
-No fixture shaped for Synapse-L4's real `{source_id, payload}` contract
-ships in `tests/fixtures/` yet (`compliance_dataset.json`'s `input` is
-flattened, not that envelope) — write a one-off fixture to exercise this
-path. This one uses the deterministic fast path (`status`/`metric_value`/
-`anomaly_score` already present in `payload`), so it skips the LLM call:
+`tests/fixtures/synapse_l4_ground_truth.json` (12 examples) is shaped for
+Synapse-L4's real `{source_id, payload}` contract — unlike
+`compliance_dataset.json`, whose `input` is flattened, not that envelope.
+Run the whole thing as a batch:
+
+```bash
+# terminal 2 — from this repo
+cd ~/dev/sentinel-eval
+uv run sentinel-eval --system synapse-l4 \
+  --fixture tests/fixtures/synapse_l4_ground_truth.json --json
+```
+
+Expect `"accuracy": 1.0`, `12/12`. Every example uses the "EventHorizon raw
+document" fast path (`raw.payload.status`/`processed.classification`, no
+LLM call) — the `expected_label` for each was computed by hand directly
+from `extract()`'s `_try_direct_extraction` mapping table, not guessed;
+see the README's fixtures section for why that's legitimate ground truth
+here despite ADR-0001 still flagging real LLM-extraction ground truth as
+unsolved. **Live-verified**: this exact run scored `12/12 (100.0%)`.
+
+Every fixture example deliberately avoids a real contradiction trap
+in that same mapping table — `status: "passed"`/`"success"` paired with
+`classification: "warning"`/`"critical"` deterministically produces a
+self-contradictory draft that the Judge stage rejects. Confirmed live:
+
+```bash
+cat > /tmp/synapse_fastpath_trap.json <<'EOF'
+{"examples": [{"input": {"source_id": "fastpath-trap-1", "payload": {"raw": {"payload": {"status": "passed", "durationMs": 50}}, "processed": {"classification": "critical"}}}, "expected_label": "critical"}]}
+EOF
+
+uv run sentinel-eval --system synapse-l4 \
+  --fixture /tmp/synapse_fastpath_trap.json --limit 1 --json
+echo "exit code: $?"
+```
+
+Expect the same `422 judge_rejected` shape as the LLM-path error case
+below, exit code `1` — this one requires no LLM at all to reproduce. See
+the README's [🐛 Known Issues](../README.md#-known-issues); not a
+sentinel-eval bug, Synapse-L4's own code, out of scope to fix here.
+
+For a single-example smoke test instead, write a one-off fixture. This one
+uses the same fast path (`status`/`metric_value`/`anomaly_score` already
+present in `payload`, the "already-shaped" variant rather than the
+EventHorizon-raw-document one above), so it also skips the LLM call:
 
 ```bash
 cat > /tmp/synapse_smoke.json <<'EOF'

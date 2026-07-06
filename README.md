@@ -193,7 +193,7 @@ report = run_eval(my_system_under_test, dataset)
 print(report.accuracy, report.per_label)
 ```
 
-Two fixtures ship under `tests/fixtures/`: `compliance_dataset.json`
+Three fixtures ship under `tests/fixtures/`: `compliance_dataset.json`
 (hand-written, 15 examples) and `sentinel_l7_ground_truth.json` (200
 examples, generated from Sentinel-L7's real pre-AI simulation profiles via
 `php artisan sentinel:export-ground-truth` — see that repo's
@@ -204,6 +204,21 @@ against it should collapse `medium`/`critical` into `'high'` the same way
 `TransactionProcessorService::gradeAiResult()` does internally
 (`is_threat = risk_level != 'low'`), rather than penalizing a correctly-
 caught threat just because it landed on a different severity than `'high'`.
+
+The third, `synapse_l4_ground_truth.json` (12 examples), is hand-derived
+rather than generated — Synapse-L4 has no equivalent to
+`TransactionStreamService`'s pre-AI labels, and ADR-0001 explicitly defers
+the harder question of ground truth for genuine LLM-driven Axiom
+extraction as unsolved, out-of-scope follow-up. What this fixture *does*
+give real, non-circular ground truth for: `extract()`'s deterministic
+"EventHorizon raw document" fast path (`_try_direct_extraction` Shape 2),
+which maps `raw.payload.status`/`processed.classification` to
+`status`/`anomaly_score` via a fixed, documented rule table — no LLM
+involved, so the expected `status` for each example is computed by hand
+directly from that rule table, not guessed. Live-verified: `12/12 (100%)`
+against a real local Synapse-L4 instance. Every example was deliberately
+chosen to avoid a known trap in that same rule table (see
+[🐛 Known Issues](#-known-issues)) rather than accidentally exercising it.
 
 #### Online (unlabeled, realistic traffic) — `sentinel_eval.online.*`
 
@@ -436,14 +451,15 @@ are account-specific secrets).
 ### 📋 Planned
 
 - [ ] **CLI surface for the online layers** — deliberately deferred; wiring providers/`embed_fn`/judge is a per-deployment decision (see [📦 CLI Reference](#-cli-reference)), not a one-shot command.
-- [ ] **A Synapse-L4-shaped fixture for `tests/fixtures/`** — no ground truth exists yet for Axiom extraction correctness (ADR-0001 flags this as unsolved, out of scope for Phase 3).
 - [ ] **Re-run the full 25-item judge validation sample** against the v2 prompt to get a real before/after accuracy comparison — only a single live spot-check has been done so far (see [📊 Benchmark Results](#-benchmark-results)); the original 92%/80% numbers still reflect the v1 prompt.
+- [ ] **Ground truth for genuine LLM-driven Axiom extraction** — `synapse_l4_ground_truth.json` only covers the deterministic fast path (no LLM involved); ADR-0001 still flags real extraction-correctness ground truth as unsolved, out of scope for Phase 3.
 
 ### 🐛 Known Issues
 
 - **Ollama driver-override latency can exceed the adapter's default 10s timeout.** A single Sentinel-L7 `--driver ollama` call has been observed to take anywhere from ~4.7s to past 10s against the real model — occasionally crossing the adapter's default per-request timeout and surfacing as a genuine `httpx.TimeoutException`. Not a bug in the CLI's error handling, which catches it correctly; see `docs/DEV_GETTING_STARTED.md`.
 - **`compliance_dataset.json` isn't adapter-compatible.** Its `input` shape doesn't match either adapter's real request contract (Synapse-shaped fields flattened, missing the `source_id`/`payload` envelope). Use `sentinel_l7_ground_truth.json` for real adapter runs; `compliance_dataset.json` is retained only as a hand-written judge-prompt smoke fixture.
 - **Sentinel-L7's own semantic cache can amplify a single wrong verdict for narrow-profile merchants.** Not a sentinel-eval bug, but it affects online-layer/CLI runs against Sentinel-L7 whenever `--driver` isn't forced — see Sentinel-L7's own README Known Issues.
+- **Synapse-L4's deterministic fast path can produce a self-contradictory Axiom.** `extract()`'s Shape 2 mapping (`_try_direct_extraction`) derives `status` from `raw.payload.status` (`passed`/`success`/`failed`/`error`, checked first) but derives `anomaly_score` from `processed.classification` independently — so an event with `status: "passed"` and `classification: "critical"` deterministically produces `status: "nominal"` + `anomaly_score: 0.9`, which the Judge stage correctly rejects (`anomaly_score >= 0.8 requires status 'critical'`). Confirmed live, reproducible on demand (no LLM involved). Not a sentinel-eval bug — Synapse-L4's own code, out of scope to fix here per `docs/adr/0001-standalone-module.md`'s standalone boundary.
 
 ### 🏁 Completed (Phase 3)
 
@@ -461,5 +477,6 @@ are account-specific secrets).
 9. CLI entrypoint (`sentinel-eval` console script) — offline harness only, live-verified against a real local Sentinel-L7 server
 10. CLI error handling widened to catch `SentinelL7Error`/`SynapseL4Error`, not just connection/timeout failures — a rejected request (e.g. a real Synapse-L4 `422 judge_rejected`) now prints a friendly one-liner and exits `1` instead of a raw traceback, live-verified
 11. Judge prompt-following fix (`prompts/judge.txt` v2) — explicit instruction that `verdict` must be a label, not a correctness judgment, paired with a runtime guard in `online/judge.py`'s `_parse_verdict()` that rejects known non-label tokens (`"reject"`, `"correct"`, etc.) and falls through the circuit breaker like any other failure; spot-verified live against the real Ollama judge host
+12. `synapse_l4_ground_truth.json` (12 examples) — hand-derived ground truth for Synapse-L4's deterministic fast-path extraction, live-verified `12/12 (100%)`; also surfaced a real, reproducible contradiction trap in that same fast path (see Known Issues)
 
 </details>
