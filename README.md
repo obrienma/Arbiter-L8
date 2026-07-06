@@ -436,15 +436,14 @@ are account-specific secrets).
 ### 📋 Planned
 
 - [ ] **CLI surface for the online layers** — deliberately deferred; wiring providers/`embed_fn`/judge is a per-deployment decision (see [📦 CLI Reference](#-cli-reference)), not a one-shot command.
-- [ ] **Judge prompt-following fix** — `qwen3.5` occasionally emits non-taxonomy tokens (`"reject"`, `"correct"`) instead of a label (2/25 in the step 8 live sample); flagged in `prompts/judge.txt`, not yet fixed.
 - [ ] **A Synapse-L4-shaped fixture for `tests/fixtures/`** — no ground truth exists yet for Axiom extraction correctness (ADR-0001 flags this as unsolved, out of scope for Phase 3).
+- [ ] **Re-run the full 25-item judge validation sample** against the v2 prompt to get a real before/after accuracy comparison — only a single live spot-check has been done so far (see [📊 Benchmark Results](#-benchmark-results)); the original 92%/80% numbers still reflect the v1 prompt.
 
 ### 🐛 Known Issues
 
 - **Ollama driver-override latency can exceed the adapter's default 10s timeout.** A single Sentinel-L7 `--driver ollama` call has been observed to take anywhere from ~4.7s to past 10s against the real model — occasionally crossing the adapter's default per-request timeout and surfacing as a genuine `httpx.TimeoutException`. Not a bug in the CLI's error handling, which catches it correctly; see `docs/DEV_GETTING_STARTED.md`.
 - **`compliance_dataset.json` isn't adapter-compatible.** Its `input` shape doesn't match either adapter's real request contract (Synapse-shaped fields flattened, missing the `source_id`/`payload` envelope). Use `sentinel_l7_ground_truth.json` for real adapter runs; `compliance_dataset.json` is retained only as a hand-written judge-prompt smoke fixture.
 - **Sentinel-L7's own semantic cache can amplify a single wrong verdict for narrow-profile merchants.** Not a sentinel-eval bug, but it affects online-layer/CLI runs against Sentinel-L7 whenever `--driver` isn't forced — see Sentinel-L7's own README Known Issues.
-- **The CLI doesn't catch `SynapseL4Error`.** `cli.py`'s `main()` only catches `httpx.ConnectError`/`httpx.TimeoutException` for a friendly one-line message — a Synapse-L4 `422 judge_rejected`/`emit_failed` response raises `SynapseL4Error`, which is unhandled and surfaces as a raw traceback with exit code `1` instead. Confirmed live against a real judge rejection. Sentinel-L7's adapter has no equivalent error type today, so this gap is Synapse-L4-specific; not yet fixed.
 
 ### 🏁 Completed (Phase 3)
 
@@ -460,5 +459,7 @@ are account-specific secrets).
 7. Cross-provider disagreement layer (`online/disagreement.py`) — live-verified, including genuine external provider failures
 8. Ground-truth export command + taxonomy-consistent fixture (`sentinel_l7_ground_truth.json`) — closed the judge-validation gate (92% binary accuracy for both Sentinel-L7 and the judge)
 9. CLI entrypoint (`sentinel-eval` console script) — offline harness only, live-verified against a real local Sentinel-L7 server
+10. CLI error handling widened to catch `SentinelL7Error`/`SynapseL4Error`, not just connection/timeout failures — a rejected request (e.g. a real Synapse-L4 `422 judge_rejected`) now prints a friendly one-liner and exits `1` instead of a raw traceback, live-verified
+11. Judge prompt-following fix (`prompts/judge.txt` v2) — explicit instruction that `verdict` must be a label, not a correctness judgment, paired with a runtime guard in `online/judge.py`'s `_parse_verdict()` that rejects known non-label tokens (`"reject"`, `"correct"`, etc.) and falls through the circuit breaker like any other failure; spot-verified live against the real Ollama judge host
 
 </details>

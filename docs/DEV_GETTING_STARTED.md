@@ -174,13 +174,12 @@ uv run sentinel-eval --system synapse-l4 \
 echo "exit code: $?"
 ```
 
-**Live-verified, and a real gap**: unlike the Sentinel-L7 path above,
-`cli.py` only catches `httpx.ConnectError`/`TimeoutException` — a
-Synapse-L4 `422`/`502` raises `SynapseL4Error`, which is *not* caught.
-Expect a raw Python traceback ending in
-`sentinel_eval.adapters.synapse_l4.SynapseL4Error: ...` and exit code `1`,
-not a friendly one-liner. Tracked in the README's
-[🐛 Known Issues](../README.md#-known-issues), not yet fixed.
+Expect stdout empty, stderr
+`error: Synapse-L4 /ingest failed (422): {'error': 'judge_rejected', ...}`,
+and exit code `1` — `cli.py` catches both `SentinelL7Error` and
+`SynapseL4Error` alongside the connection/timeout cases above, so a
+rejected request prints a friendly one-liner rather than a raw traceback.
+**Live-verified.**
 
 Stop the server for good afterward (`Ctrl+C` in terminal 1) — it's a
 temporary process for this verification only, not a persistent service.

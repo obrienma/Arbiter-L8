@@ -2,10 +2,11 @@
 
 **Used by:** `sentinel_eval.online.judge` (`_call_ollama`, `_call_gemini_flash`, via `JudgeCircuitBreaker.judge()`)
 **Model:** `qwen3.5:9b-q4_K_M` (Ollama, primary — same model/host convention as Sentinel-L7's `OllamaDriver`), `gemini-2.0-flash` (Gemini Flash, fallback)
-**Version:** 1
+**Version:** 2
 **Template file:** `prompts/judge.txt`
 
 ### Changelog
+- **v2** (2026-07-06): Fixed a prompt-following gap surfaced in the step 8 live validation (2/25 verdicts were `"reject"`/`"correct"` instead of a label). Added an explicit instruction that `verdict` must be a label in the same taxonomy as `{predicted_label}`, never a correctness judgment — without hardcoding any one system's label vocabulary, since this prompt is domain-agnostic (see `EvalPrediction.label` in the README). Paired with a runtime guard in `_parse_verdict` (`online/judge.py`) that raises on a known non-label token, falling through the circuit breaker rather than silently accepting a bad verdict.
 - **v1** (2026-07-04): Initial version, introduced for Phase 3 step 5 (layer 4 — LLM-as-judge for the online/unlabeled path).
 
 ---
@@ -58,3 +59,12 @@ literal `{`/`}` that `str.format()` would otherwise try to interpolate).
   pre-existing scaffold's type signature) — `reasoning` is required in the
   schema (so the model has to justify its answer, which measurably improves
   small-model verdict quality) but not yet surfaced through `JudgeVerdict`.
+- `_parse_verdict` rejects a fixed denylist of known non-label tokens
+  (`"correct"`, `"reject"`, `"yes"`, `"no"`, etc.) rather than validating
+  against a real taxonomy — there is no taxonomy to validate against here,
+  since `label` is a plain domain-agnostic `str` (Sentinel-L7's
+  `low|medium|high|critical|unknown` and Synapse-L4's
+  `nominal|degraded|critical` are different vocabularies this same prompt
+  judges both against). A rejected verdict raises `ValueError`, which the
+  circuit breaker treats the same as any other failure — falls through to
+  the next source, doesn't silently pass a bad verdict downstream.

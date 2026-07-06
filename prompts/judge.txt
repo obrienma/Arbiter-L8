@@ -11,8 +11,14 @@ Raw output: {raw_output}
 Why this prediction was flagged for review:
 {context}
 
+"verdict" must be a label — the same kind of value as "Predicted label"
+above, not a yes/no or correct/reject judgment. If you agree with the
+predicted label, output that exact same label as your verdict; only
+output a different value when a different label in that same taxonomy is
+the one you believe is actually correct.
+
 Respond with valid JSON only, no other text:
 {
-  "verdict": "<the label you believe is correct>",
+  "verdict": "<a label in the same taxonomy as Predicted label — never \"correct\", \"reject\", \"yes\", or \"no\">",
   "reasoning": "<one sentence explaining why>"
 }

@@ -210,6 +210,42 @@ def test_connection_error_returns_1_and_prints_to_stderr(tmp_path, capsys):
 
 
 @respx.mock
+def test_sentinel_l7_error_returns_1_and_prints_to_stderr_not_a_traceback(tmp_path, capsys):
+    respx.post(SENTINEL_URL).mock(return_value=httpx.Response(422, text="bad request"))
+    fixture = _write_fixture(
+        tmp_path,
+        [{"input": {"amount": 1.0, "currency": "USD", "merchant": "A"}, "expected_label": "low"}],
+    )
+
+    exit_code = main(
+        ["--system", "sentinel-l7", "--fixture", str(fixture), "--url", SENTINEL_URL]
+    )
+
+    assert exit_code == 1
+    assert "Sentinel-L7 /mcp call failed (422)" in capsys.readouterr().err
+
+
+@respx.mock
+def test_synapse_l4_error_returns_1_and_prints_to_stderr_not_a_traceback(tmp_path, capsys):
+    respx.post(f"{SYNAPSE_URL}/ingest").mock(
+        return_value=httpx.Response(
+            422, json={"error": "judge_rejected", "rule": "anomaly_score_status_consistency"}
+        )
+    )
+    fixture = _write_fixture(
+        tmp_path,
+        [{"input": {"source_id": "txn-1", "payload": {}}, "expected_label": "nominal"}],
+    )
+
+    exit_code = main(
+        ["--system", "synapse-l4", "--fixture", str(fixture), "--url", SYNAPSE_URL]
+    )
+
+    assert exit_code == 1
+    assert "Synapse-L4 /ingest failed (422)" in capsys.readouterr().err
+
+
+@respx.mock
 def test_json_output_is_valid_json(tmp_path, capsys):
     respx.post(SENTINEL_URL).mock(
         return_value=httpx.Response(

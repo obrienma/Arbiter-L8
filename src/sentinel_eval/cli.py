@@ -16,8 +16,8 @@ from pathlib import Path
 
 import httpx
 
-from sentinel_eval.adapters.sentinel_l7 import make_sentinel_l7_system_under_test
-from sentinel_eval.adapters.synapse_l4 import make_synapse_l4_system_under_test
+from sentinel_eval.adapters.sentinel_l7 import SentinelL7Error, make_sentinel_l7_system_under_test
+from sentinel_eval.adapters.synapse_l4 import SynapseL4Error, make_synapse_l4_system_under_test
 from sentinel_eval.harness import SystemUnderTest, run_eval
 from sentinel_eval.models import EvalDataset, EvalPrediction, EvalReport
 
@@ -124,6 +124,9 @@ def main(argv: list[str] | None = None) -> int:
         report = run_eval(sut, dataset)
     except (httpx.ConnectError, httpx.TimeoutException) as exc:
         print(f"error: could not reach {args.system} — {exc}", file=sys.stderr)
+        return 1
+    except (SentinelL7Error, SynapseL4Error) as exc:
+        print(f"error: {exc}", file=sys.stderr)
         return 1
 
     if args.json:

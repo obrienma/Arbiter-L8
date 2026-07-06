@@ -121,6 +121,47 @@ def test_call_ollama_raises_on_malformed_json_content():
         _call_ollama(_prediction(), context="elevated label, low confidence")
 
 
+@pytest.mark.parametrize("bad_verdict", ["reject", "Correct", "YES", "no"])
+@respx.mock
+def test_call_ollama_raises_on_correctness_judgment_instead_of_label(bad_verdict):
+    """Regression test for the step 8 live-validation finding: qwen3.5
+    sometimes answers as if grading correctness instead of naming a label.
+    """
+    respx.post(f"{OLLAMA_URL}/api/chat").mock(
+        return_value=httpx.Response(
+            200,
+            json={"message": {"content": f'{{"verdict": "{bad_verdict}", "reasoning": "r"}}'}},
+        )
+    )
+
+    with pytest.raises(ValueError, match="correctness judgment"):
+        _call_ollama(_prediction(), context="elevated label, low confidence")
+
+
+def test_non_label_verdict_falls_through_to_heuristics_like_any_other_failure(monkeypatch):
+    """A rejected non-label verdict from Ollama should fall through the
+    circuit breaker exactly like a timeout or connection error would —
+    not a special case.
+    """
+    exporter = _capture_spans()
+
+    def ollama_returns_correctness_judgment(prediction, context):
+        raise ValueError("judge returned a correctness judgment ('reject'), not a label")
+
+    def flash_fails(prediction, context):
+        raise ConnectionError("flash down")
+
+    monkeypatch.setattr(judge_module, "_call_ollama", ollama_returns_correctness_judgment)
+    monkeypatch.setattr(judge_module, "_call_gemini_flash", flash_fails)
+
+    breaker = JudgeCircuitBreaker()
+    verdict = breaker.judge(_prediction(), context="elevated label, low confidence")
+
+    assert verdict.source is JudgeSource.HEURISTICS_FALLBACK
+    span_names = [s.name for s in exporter.get_finished_spans()]
+    assert span_names == ["ollama_attempt", "flash_attempt", "heuristics_fallback", "judge_call"]
+
+
 @respx.mock
 def test_call_gemini_flash_sends_response_mime_type_and_parses_verdict():
     route = respx.post(GEMINI_URL).mock(

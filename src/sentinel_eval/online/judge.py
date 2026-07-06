@@ -59,8 +59,27 @@ def _render_prompt(prediction: EvalPrediction, context: str) -> str:
     return template
 
 
+# Observed in the wild (Phase 3 step 8 live validation, qwen3.5, 2/25
+# verdicts): the model sometimes answers as if grading correctness
+# ("was the prediction right?") instead of naming a label, even though the
+# prompt asks for a label. `label` is a domain-agnostic plain str (see
+# EvalPrediction), so there's no fixed taxonomy to validate a verdict
+# against here — but these specific tokens are never valid labels in any
+# taxonomy this judge has ever scored against, so treating them as a
+# parse failure (falling through the circuit breaker, same as malformed
+# JSON) is safe without hardcoding any one system's label vocabulary.
+_NON_LABEL_VERDICT_TOKENS = frozenset(
+    {"correct", "incorrect", "reject", "rejected", "approve", "approved", "yes", "no"}
+)
+
+
 def _parse_verdict(content: str) -> str:
-    return json.loads(content)["verdict"]
+    verdict = json.loads(content)["verdict"]
+    if not isinstance(verdict, str) or verdict.strip().lower() in _NON_LABEL_VERDICT_TOKENS:
+        raise ValueError(
+            f"judge returned a correctness judgment ({verdict!r}), not a label"
+        )
+    return verdict
 
 
 class JudgeSource(str, Enum):
@@ -113,9 +132,10 @@ def _call_ollama(prediction: EvalPrediction, context: str) -> str:
     """Call the remote Ollama judge over Tailscale (partner-owned host).
 
     Raises (httpx.HTTPStatusError, httpx.TimeoutException,
-    httpx.ConnectError, json.JSONDecodeError, KeyError) on any failure so
-    the circuit breaker falls through to the next source — never returns a
-    sentinel value.
+    httpx.ConnectError, json.JSONDecodeError, KeyError, ValueError — the
+    last from _parse_verdict rejecting a non-label verdict) on any failure
+    so the circuit breaker falls through to the next source — never
+    returns a sentinel value.
     """
     prompt = _render_prompt(prediction, context)
     response = httpx.post(
