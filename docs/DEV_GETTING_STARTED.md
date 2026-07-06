@@ -124,11 +124,12 @@ curl -s -X POST http://127.0.0.1:8000/ingest \
 No fixture shaped for Synapse-L4's real `{source_id, payload}` contract
 ships in `tests/fixtures/` yet (`compliance_dataset.json`'s `input` is
 flattened, not that envelope) — write a one-off fixture to exercise this
-path:
+path. This one uses the deterministic fast path (`status`/`metric_value`/
+`anomaly_score` already present in `payload`), so it skips the LLM call:
 
 ```bash
 cat > /tmp/synapse_smoke.json <<'EOF'
-{"examples": [{"input": {"source_id": "manual-1", "payload": {"metric": "test"}}, "expected_label": "nominal"}]}
+{"examples": [{"input": {"source_id": "manual-1", "payload": {"status": "degraded", "metric_value": 87.3, "anomaly_score": 0.62, "domain": "aml"}}, "expected_label": "degraded"}]}
 EOF
 
 # terminal 2 — from this repo
@@ -137,12 +138,52 @@ uv run sentinel-eval --system synapse-l4 \
   --fixture /tmp/synapse_smoke.json --limit 1 --json
 ```
 
-**Not yet live-verified in this environment** — Synapse-L4 wasn't running
-locally when its adapter (Phase 3 step 2) was originally built or when
-this guide was written; only the respx-mocked test suite has exercised
-this path so far. Treat this section as the script to run the first time
-a live Synapse-L4 instance is available, not a result already confirmed
-the way step 2 above is.
+Expect a JSON `EvalReport` with `"accuracy": 1.0`, `raw_output.source_id`
+matching the fixture, and `metadata.pipeline_ms` reflecting the real round
+trip (extraction + judge + a real `XADD` to Sentinel-L7's `synapse:axioms`
+Redis stream). **Live-verified**: this exact run scored `1/1 (100.0%)` with
+`pipeline_ms: 1340`.
+
+Confirm the real LLM path too — a payload with no `status`/`metric_value`/
+`anomaly_score` fields forces the fast path to miss and falls through to a
+real Instructor/Ollama call (`qwen3.5:9b-q4_K_M`, ~14s observed):
+
+```bash
+cat > /tmp/synapse_smoke_llm.json <<'EOF'
+{"examples": [{"input": {"source_id": "manual-llm-1", "payload": {"message": "CPU utilization on payment-gateway-3 spiked to 96% for 4 minutes straight, well above the 80% alert threshold. Error rate also rose to 2.1%."}}, "expected_label": "critical"}]}
+EOF
+
+uv run sentinel-eval --system synapse-l4 \
+  --fixture /tmp/synapse_smoke_llm.json --limit 1 --json
+```
+
+The real model can extract a self-contradictory draft on its own (a real
+run returned `anomaly_score: 0.87` with `status: "degraded"`, not
+`"critical"`) — Synapse-L4's own rule-based Judge stage catches this
+(`anomaly_score >= 0.8` requires `status == "critical"`) and the call
+above will raise instead of printing a report; see the error-path note
+below before assuming something is broken.
+
+Confirm the error path — the fixture above (or the fast-path fixture with
+`anomaly_score: 0.93`/`status: "nominal"`) reliably reproduces a real
+`422 judge_rejected` from Synapse-L4:
+
+```bash
+uv run sentinel-eval --system synapse-l4 \
+  --fixture /tmp/synapse_smoke_llm.json --limit 1 --json
+echo "exit code: $?"
+```
+
+**Live-verified, and a real gap**: unlike the Sentinel-L7 path above,
+`cli.py` only catches `httpx.ConnectError`/`TimeoutException` — a
+Synapse-L4 `422`/`502` raises `SynapseL4Error`, which is *not* caught.
+Expect a raw Python traceback ending in
+`sentinel_eval.adapters.synapse_l4.SynapseL4Error: ...` and exit code `1`,
+not a friendly one-liner. Tracked in the README's
+[🐛 Known Issues](../README.md#-known-issues), not yet fixed.
+
+Stop the server for good afterward (`Ctrl+C` in terminal 1) — it's a
+temporary process for this verification only, not a persistent service.
 
 ## 4. Online layers (no CLI surface — by design)
 

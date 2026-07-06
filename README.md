@@ -293,6 +293,20 @@ Two real adapters exist under `src/sentinel_eval/adapters/`:
   see the module docstring for why (heavy service-specific dependencies,
   a Python-version mismatch, and an import-time config requirement that
   would all violate the standalone-module mandate).
+
+  **Live-verified**: run against a temporarily-started local Synapse-L4
+  instance through the real Extract → Judge → Emit pipeline (`XADD` to
+  Sentinel-L7's actual `synapse:axioms` Redis stream on a success). A
+  deterministic fast-path case scored correctly (`accuracy: 1/1 (100.0%)`,
+  `pipeline_ms: 1340`). A designed contradiction (fast-path input with
+  `anomaly_score: 0.93` but `status: "nominal"`) correctly triggered a real
+  `422 judge_rejected`. Most notably, a real Ollama call
+  (`qwen3.5:9b-q4_K_M`, 13.9s) produced a *genuinely* self-contradictory
+  extraction on its own (`anomaly_score: 0.87` with `status: "degraded"`,
+  not `"critical"`) — caught by the real rule-based Judge stage, reproducing
+  Synapse-L4's own documented "Silent Contradiction" anti-pattern for real
+  rather than as a constructed test case. Full commands and output in
+  [`docs/DEV_GETTING_STARTED.md`](docs/DEV_GETTING_STARTED.md#3-cli-against-a-real-synapse-l4-server).
 - **`sentinel_l7.py`**: `make_sentinel_l7_system_under_test()` speaks
   MCP-over-HTTP directly to Sentinel-L7's `/mcp` endpoint (`analyze-transaction`
   tool) — a hand-rolled minimal JSON-RPC client for this one tool call,
@@ -430,6 +444,7 @@ are account-specific secrets).
 - **Ollama driver-override latency can exceed the adapter's default 10s timeout.** A single Sentinel-L7 `--driver ollama` call has been observed to take anywhere from ~4.7s to past 10s against the real model — occasionally crossing the adapter's default per-request timeout and surfacing as a genuine `httpx.TimeoutException`. Not a bug in the CLI's error handling, which catches it correctly; see `docs/DEV_GETTING_STARTED.md`.
 - **`compliance_dataset.json` isn't adapter-compatible.** Its `input` shape doesn't match either adapter's real request contract (Synapse-shaped fields flattened, missing the `source_id`/`payload` envelope). Use `sentinel_l7_ground_truth.json` for real adapter runs; `compliance_dataset.json` is retained only as a hand-written judge-prompt smoke fixture.
 - **Sentinel-L7's own semantic cache can amplify a single wrong verdict for narrow-profile merchants.** Not a sentinel-eval bug, but it affects online-layer/CLI runs against Sentinel-L7 whenever `--driver` isn't forced — see Sentinel-L7's own README Known Issues.
+- **The CLI doesn't catch `SynapseL4Error`.** `cli.py`'s `main()` only catches `httpx.ConnectError`/`httpx.TimeoutException` for a friendly one-line message — a Synapse-L4 `422 judge_rejected`/`emit_failed` response raises `SynapseL4Error`, which is unhandled and surfaces as a raw traceback with exit code `1` instead. Confirmed live against a real judge rejection. Sentinel-L7's adapter has no equivalent error type today, so this gap is Synapse-L4-specific; not yet fixed.
 
 ### 🏁 Completed (Phase 3)
 
@@ -437,7 +452,7 @@ are account-specific secrets).
 <summary>🔍 View shipped steps...</summary>
 
 1. Foundational `config.py` + `httpx` dependency
-2. Synapse-L4 HTTP adapter (`adapters/synapse_l4.py`)
+2. Synapse-L4 HTTP adapter (`adapters/synapse_l4.py`) — live-verified against a real local instance, including a real self-contradictory Ollama extraction correctly caught by the Judge stage
 3. Sentinel-L7 MCP-over-HTTP adapter (`adapters/sentinel_l7.py`) — required a paired additive widening of Sentinel-L7's `TransactionProcessorService::process()`
 4. Embedding consistency layer (`online/consistency.py`) — live-verified against a real Ollama host and Upstash Vector index
 5. LLM-as-judge layer (`online/judge.py`, `prompts/judge.md`+`.txt`) — live-verified against real Ollama and Gemini Flash calls
