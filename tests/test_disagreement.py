@@ -3,8 +3,8 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from sentinel_eval.models import EvalPrediction
-from sentinel_eval.online.disagreement import score_disagreement
+from arbiter_l8.models import EvalPrediction
+from arbiter_l8.online.disagreement import score_disagreement
 
 
 def _capture_spans():

@@ -2,7 +2,7 @@ import httpx
 import pytest
 import respx
 
-from sentinel_eval.adapters.synapse_l4 import SynapseL4Error, make_synapse_l4_system_under_test
+from arbiter_l8.adapters.synapse_l4 import SynapseL4Error, make_synapse_l4_system_under_test
 
 
 @respx.mock
@@ -73,7 +73,7 @@ def test_emit_failed_raises_synapse_l4_error():
 
 @respx.mock
 def test_default_base_url_matches_config():
-    from sentinel_eval import config
+    from arbiter_l8 import config
 
     route = respx.post(f"{config.synapse_l4_base_url()}/ingest").mock(
         return_value=httpx.Response(

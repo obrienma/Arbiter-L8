@@ -2,10 +2,10 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from sentinel_eval.models import EvalPrediction
-from sentinel_eval.online import judge as judge_module
-from sentinel_eval.online.judge import JudgeCircuitBreaker
-from sentinel_eval.online.pipeline import evaluate_item
+from arbiter_l8.models import EvalPrediction
+from arbiter_l8.online import judge as judge_module
+from arbiter_l8.online.judge import JudgeCircuitBreaker
+from arbiter_l8.online.pipeline import evaluate_item
 
 
 def _capture_spans():

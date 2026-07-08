@@ -5,9 +5,9 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from sentinel_eval.models import EvalPrediction
-from sentinel_eval.online import judge as judge_module
-from sentinel_eval.online.judge import JudgeCircuitBreaker, JudgeSource, _call_gemini_flash, _call_ollama
+from arbiter_l8.models import EvalPrediction
+from arbiter_l8.online import judge as judge_module
+from arbiter_l8.online.judge import JudgeCircuitBreaker, JudgeSource, _call_gemini_flash, _call_ollama
 
 OLLAMA_URL = "http://ollama-judge.test:11434"
 GEMINI_URL = "https://gemini.test/v1beta/models/gemini-2.0-flash:generateContent"

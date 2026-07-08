@@ -2,8 +2,8 @@ import httpx
 import pytest
 import respx
 
-from sentinel_eval.models import EvalPrediction
-from sentinel_eval.online.consistency import (
+from arbiter_l8.models import EvalPrediction
+from arbiter_l8.online.consistency import (
     UpstashVectorError,
     make_ollama_embed_fn,
     query_upstash_vector,

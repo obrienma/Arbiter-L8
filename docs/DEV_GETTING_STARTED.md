@@ -1,4 +1,4 @@
-# sentinel-eval — Developer Getting-Started Guide
+# arbiter-l8 — Developer Getting-Started Guide
 
 Everything below was actually run against real services to confirm it
 works, not just asserted — every command here was re-run while writing
@@ -14,7 +14,7 @@ uv sync
 ```
 
 Env vars used below (all have dev-environment defaults in
-`src/sentinel_eval/config.py` — see the README's
+`src/arbiter_l8/config.py` — see the README's
 [🔧 Configuration](../README.md#-configuration) section):
 `SENTINEL_L7_MCP_URL`, `SYNAPSE_L4_BASE_URL`, `OLLAMA_URL`,
 `OLLAMA_EMBEDDING_MODEL`, `OLLAMA_JUDGE_HOST`, `OLLAMA_JUDGE_MODEL`,
@@ -56,8 +56,8 @@ curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/mcp \
 ```bash
 # terminal 2 — from this repo, scoring one real example with the
 # driver override (bypasses the semantic cache so it's a fresh verdict)
-cd ~/dev/sentinel-eval
-SENTINEL_L7_MCP_URL=http://127.0.0.1:8080/mcp uv run sentinel-eval \
+cd ~/dev/arbiter-l8
+SENTINEL_L7_MCP_URL=http://127.0.0.1:8080/mcp uv run arbiter-l8 \
   --system sentinel-l7 \
   --fixture tests/fixtures/sentinel_l7_ground_truth.json \
   --driver ollama --binary --limit 1 --json
@@ -73,7 +73,7 @@ latency variance, not a CLI bug; just re-run.
 Confirm the plain-text report path too, and try a larger sample:
 
 ```bash
-uv run sentinel-eval --system sentinel-l7 \
+uv run arbiter-l8 --system sentinel-l7 \
   --fixture tests/fixtures/sentinel_l7_ground_truth.json \
   --driver ollama --limit 5
 ```
@@ -89,7 +89,7 @@ Confirm the error path by stopping the server (`Ctrl+C` in terminal 1)
 and re-running the same command:
 
 ```bash
-uv run sentinel-eval --system sentinel-l7 \
+uv run arbiter-l8 --system sentinel-l7 \
   --fixture tests/fixtures/sentinel_l7_ground_truth.json --limit 1
 echo "exit code: $?"
 ```
@@ -128,8 +128,8 @@ Run the whole thing as a batch:
 
 ```bash
 # terminal 2 — from this repo
-cd ~/dev/sentinel-eval
-uv run sentinel-eval --system synapse-l4 \
+cd ~/dev/arbiter-l8
+uv run arbiter-l8 --system synapse-l4 \
   --fixture tests/fixtures/synapse_l4_ground_truth.json --json
 ```
 
@@ -151,7 +151,7 @@ cat > /tmp/synapse_fastpath_trap.json <<'EOF'
 {"examples": [{"input": {"source_id": "fastpath-trap-1", "payload": {"raw": {"payload": {"status": "passed", "durationMs": 50}}, "processed": {"classification": "critical"}}}, "expected_label": "critical"}]}
 EOF
 
-uv run sentinel-eval --system synapse-l4 \
+uv run arbiter-l8 --system synapse-l4 \
   --fixture /tmp/synapse_fastpath_trap.json --limit 1 --json
 echo "exit code: $?"
 ```
@@ -159,7 +159,7 @@ echo "exit code: $?"
 Expect the same `422 judge_rejected` shape as the LLM-path error case
 below, exit code `1` — this one requires no LLM at all to reproduce. See
 the README's [🐛 Known Issues](../README.md#-known-issues); not a
-sentinel-eval bug, Synapse-L4's own code, out of scope to fix here.
+arbiter-l8 bug, Synapse-L4's own code, out of scope to fix here.
 
 For a single-example smoke test instead, write a one-off fixture. This one
 uses the same fast path (`status`/`metric_value`/`anomaly_score` already
@@ -172,8 +172,8 @@ cat > /tmp/synapse_smoke.json <<'EOF'
 EOF
 
 # terminal 2 — from this repo
-cd ~/dev/sentinel-eval
-uv run sentinel-eval --system synapse-l4 \
+cd ~/dev/arbiter-l8
+uv run arbiter-l8 --system synapse-l4 \
   --fixture /tmp/synapse_smoke.json --limit 1 --json
 ```
 
@@ -192,7 +192,7 @@ cat > /tmp/synapse_smoke_llm.json <<'EOF'
 {"examples": [{"input": {"source_id": "manual-llm-1", "payload": {"message": "CPU utilization on payment-gateway-3 spiked to 96% for 4 minutes straight, well above the 80% alert threshold. Error rate also rose to 2.1%."}}, "expected_label": "critical"}]}
 EOF
 
-uv run sentinel-eval --system synapse-l4 \
+uv run arbiter-l8 --system synapse-l4 \
   --fixture /tmp/synapse_smoke_llm.json --limit 1 --json
 ```
 
@@ -208,7 +208,7 @@ Confirm the error path — the fixture above (or the fast-path fixture with
 `422 judge_rejected` from Synapse-L4:
 
 ```bash
-uv run sentinel-eval --system synapse-l4 \
+uv run arbiter-l8 --system synapse-l4 \
   --fixture /tmp/synapse_smoke_llm.json --limit 1 --json
 echo "exit code: $?"
 ```
@@ -242,7 +242,7 @@ documented drift) — both must be overridden together or you'll hit a real
 OLLAMA_URL=http://100.82.223.70:11434 \
 OLLAMA_EMBEDDING_MODEL=nomic-embed-text:v1.5 \
 uv run python -c "
-from sentinel_eval.online.consistency import make_ollama_embed_fn, query_upstash_vector
+from arbiter_l8.online.consistency import make_ollama_embed_fn, query_upstash_vector
 embed = make_ollama_embed_fn()
 vector = embed('a \$500 purchase at a grocery store')
 print('embedding dim:', len(vector))            # expect 768
@@ -254,8 +254,8 @@ print(query_upstash_vector(vector))              # UpstashVectorError if creds u
 
 ```bash
 uv run python -c "
-from sentinel_eval.adapters.sentinel_l7 import make_sentinel_l7_system_under_test
-from sentinel_eval.online.disagreement import score_disagreement
+from arbiter_l8.adapters.sentinel_l7 import make_sentinel_l7_system_under_test
+from arbiter_l8.online.disagreement import score_disagreement
 providers = {
     d: make_sentinel_l7_system_under_test(mcp_url='http://127.0.0.1:8080/mcp', driver=d)
     for d in ('ollama',)   # add 'gemini'/'openrouter' if those keys/quota are live
@@ -277,8 +277,8 @@ host already used above):
 
 ```bash
 uv run python -c "
-from sentinel_eval.models import EvalPrediction
-from sentinel_eval.online.judge import JudgeCircuitBreaker
+from arbiter_l8.models import EvalPrediction
+from arbiter_l8.online.judge import JudgeCircuitBreaker
 prediction = EvalPrediction(id='t1', raw_output={'risk_level': 'high'}, label='high', confidence=0.4)
 verdict = JudgeCircuitBreaker().judge(prediction, context='low confidence on a high verdict')
 print(verdict.source, verdict.verdict_label)

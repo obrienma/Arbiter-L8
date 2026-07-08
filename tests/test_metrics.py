@@ -7,11 +7,11 @@ from opentelemetry.sdk.metrics.export import (
     PeriodicExportingMetricReader,
 )
 
-from sentinel_eval.models import EvalDataset, EvalPrediction
-from sentinel_eval.harness import run_eval
-from sentinel_eval.online import judge as judge_module
-from sentinel_eval.online.judge import JudgeCircuitBreaker
-from sentinel_eval.observability.metrics import (
+from arbiter_l8.models import EvalDataset, EvalPrediction
+from arbiter_l8.harness import run_eval
+from arbiter_l8.online import judge as judge_module
+from arbiter_l8.online.judge import JudgeCircuitBreaker
+from arbiter_l8.observability.metrics import (
     harness_metric_gauge,
     judge_outcome_counter,
     layer_latency_histogram,
@@ -67,7 +67,7 @@ def test_judge_outcome_counter_labeled_by_source():
     ):
         JudgeCircuitBreaker().judge(_prediction(), context="test")
 
-    points = _data_points(reader, "sentinel_eval.judge.outcome")
+    points = _data_points(reader, "arbiter_l8.judge.outcome")
     by_source = {dp.attributes["source"]: dp.value for dp in points}
     assert by_source.get("gemini_flash") == 1
     assert by_source.get("ollama") is None  # ollama never resolved anything
@@ -83,7 +83,7 @@ def test_judge_outcome_counter_accumulates_across_calls():
         breaker.judge(_prediction(), context="a")
         breaker.judge(_prediction(), context="b")
 
-    points = _data_points(reader, "sentinel_eval.judge.outcome")
+    points = _data_points(reader, "arbiter_l8.judge.outcome")
     by_source = {dp.attributes["source"]: dp.value for dp in points}
     assert by_source["ollama"] == 2
 
@@ -91,7 +91,7 @@ def test_judge_outcome_counter_accumulates_across_calls():
 def test_layer_latency_histogram_only_tracks_the_four_layers():
     reader = _capture_metrics()
 
-    from sentinel_eval.online.heuristics import run_heuristics
+    from arbiter_l8.online.heuristics import run_heuristics
 
     run_heuristics(_prediction())
 
@@ -100,7 +100,7 @@ def test_layer_latency_histogram_only_tracks_the_four_layers():
     with mock.patch.object(judge_module, "_call_ollama", lambda p, c: "high"):
         JudgeCircuitBreaker().judge(_prediction(), context="test")
 
-    points = _data_points(reader, "sentinel_eval.layer.latency")
+    points = _data_points(reader, "arbiter_l8.layer.latency")
     layers = {dp.attributes["layer"] for dp in points}
     # heuristics_check and judge_call are tracked layers; ollama_attempt is a
     # nested attempt span within judge_call and must not show up here.
@@ -126,7 +126,7 @@ def test_harness_metric_gauge_records_precision_recall_f1_per_label():
 
     report = run_eval(perfect_sut, dataset)
 
-    points = _data_points(reader, "sentinel_eval.harness.metric")
+    points = _data_points(reader, "arbiter_l8.harness.metric")
     readings = {(dp.attributes["metric"], dp.attributes["label"]): dp.value for dp in points}
 
     assert readings[("accuracy", "overall")] == 1.0
@@ -160,7 +160,7 @@ def test_record_harness_metrics_direct_call_matches_report_values():
     # produces the expected readings.
     record_harness_metrics(report)
 
-    points = _data_points(reader, "sentinel_eval.harness.metric")
+    points = _data_points(reader, "arbiter_l8.harness.metric")
     readings = {(dp.attributes["metric"], dp.attributes["label"]): dp.value for dp in points}
 
     high_metrics = next(m for m in report.per_label if m.label == "high")

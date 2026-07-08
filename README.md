@@ -19,7 +19,7 @@ flowchart LR
         L3 --> O
         L4 --> O
     end
-    CLI[sentinel-eval CLI] --> H
+    CLI[arbiter-l8 CLI] --> H
 ```
 
 ---
@@ -88,7 +88,7 @@ uv sync
 uv run pytest
 
 # 3. Score a fixture against a real Sentinel-L7 instance
-uv run sentinel-eval --system sentinel-l7 \
+uv run arbiter-l8 --system sentinel-l7 \
   --fixture tests/fixtures/sentinel_l7_ground_truth.json \
   --driver ollama --binary --limit 25
 ```
@@ -101,8 +101,8 @@ uv run sentinel-eval --system sentinel-l7 \
 
 ### 📦 CLI Reference
 
-`sentinel-eval` (a `[project.scripts]` entry point,
-`sentinel_eval.cli:main`) runs the offline harness from the shell against a
+`arbiter-l8` (a `[project.scripts]` entry point,
+`arbiter_l8.cli:main`) runs the offline harness from the shell against a
 real adapter — no code required for a one-off scoring run. There is
 deliberately no CLI surface for the online path
 (`online.pipeline.evaluate_item`) — it's meant to be wired into a caller's
@@ -113,7 +113,7 @@ labeled-fixture score is.
 | Command / Flag | Description |
 | --- | --- |
 | `uv run pytest` | Run the full automated test suite (mocked HTTP boundary, no live services required) |
-| `uv run sentinel-eval --system {sentinel-l7,synapse-l4}` | Score a fixture against a real adapter (required) |
+| `uv run arbiter-l8 --system {sentinel-l7,synapse-l4}` | Score a fixture against a real adapter (required) |
 | `--fixture PATH` | Labeled `EvalDataset` JSON whose `input` shape matches the chosen adapter's contract (required) |
 | `--driver {gemini,openrouter,ollama}` | Sentinel-L7 only — force a specific `ComplianceManager` driver via the per-request override, bypassing the semantic cache |
 | `--binary` | Sentinel-L7 only — collapse a predicted label to `'high'` unless it's exactly `'low'`, matching `TransactionProcessorService::gradeAiResult()` |
@@ -164,7 +164,7 @@ system it's currently scoring.
 
 ### 🔀 Offline vs Online Evaluation
 
-#### Offline (ground truth) — `sentinel_eval.harness.run_eval`
+#### Offline (ground truth) — `arbiter_l8.harness.run_eval`
 
 Runs a labeled dataset through a system-under-test and scores its
 predictions against known-correct labels: precision/recall/F1 per label,
@@ -172,8 +172,8 @@ plus overall accuracy. **No LLM dependency anywhere in this path** — it
 works even if every external model/service is down.
 
 ```python
-from sentinel_eval.harness import run_eval
-from sentinel_eval.models import EvalDataset
+from arbiter_l8.harness import run_eval
+from arbiter_l8.models import EvalDataset
 
 dataset = EvalDataset.model_validate({
     "examples": [
@@ -213,7 +213,7 @@ against a real local Synapse-L4 instance. Every example was deliberately
 chosen to avoid a known trap in that same rule table (see
 [🐛 Known Issues](#-known-issues)) rather than accidentally exercising it.
 
-#### Online (unlabeled, realistic traffic) — `sentinel_eval.online.*`
+#### Online (unlabeled, realistic traffic) — `arbiter_l8.online.*`
 
 Production/sampled traffic has no ground truth, so it's scored by a
 layered, cost-ordered pipeline instead. Each layer is more expensive (and
@@ -292,7 +292,7 @@ instead — see [📊 Benchmark Results](#-benchmark-results) below.
 
 ### 🔌 Plugging in a New System-Under-Test
 
-Two real adapters exist under `src/sentinel_eval/adapters/`:
+Two real adapters exist under `src/arbiter_l8/adapters/`:
 
 - **`synapse_l4.py`**: `make_synapse_l4_system_under_test()` POSTs to
   Synapse-L4's `/ingest` and maps its Axiom response into `EvalPrediction`
@@ -357,9 +357,9 @@ per-item output).
 
 | Date | Fixture | System | Sample | Strict accuracy | Binary accuracy | Notes | Journal |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 2026-07-04 | `sentinel_l7_ground_truth.json` | Sentinel-L7 (`driver=ollama`, cache bypassed) | 25 live / 200 (all 10 `high` + 15 random `low`, seed 42) | 84% | **92%** | First attempt (no driver override) scored 52% — a real semantic-cache amplification bug, not a model failure; tracked as a Known Issue in sentinel-l7's own README. | [step 8](docs/journal/sentinel-eval-2026-07-04T1720-ground-truth-export-and-judge-validation.md) |
-| 2026-07-04 | `sentinel_l7_ground_truth.json` | Judge (`qwen3.5:9b-q4_K_M` via Ollama) | Same 25, called unconditionally (bypassing the heuristic gate) | 80% | **92%** | 2/25 verdicts were non-taxonomy tokens (`"reject"`, `"correct"`) instead of a label — a prompt-following gap, not yet fixed. | [step 8](docs/journal/sentinel-eval-2026-07-04T1720-ground-truth-export-and-judge-validation.md) |
-| 2026-07-04 | `compliance_dataset.json` | Judge (`qwen3.5:9b-q4_K_M` via Ollama) | All 15 | 6.7% | — | Fixture defect, not a judge failure: `raw_output` is Synapse-shaped, `expected_label` is Sentinel-shaped — the judge answered correctly in the wrong taxonomy. Superseded by the row above; kept here as a documented false alarm. | [step 5](docs/journal/sentinel-eval-2026-07-04T1512-judge-layer.md) |
+| 2026-07-04 | `sentinel_l7_ground_truth.json` | Sentinel-L7 (`driver=ollama`, cache bypassed) | 25 live / 200 (all 10 `high` + 15 random `low`, seed 42) | 84% | **92%** | First attempt (no driver override) scored 52% — a real semantic-cache amplification bug, not a model failure; tracked as a Known Issue in sentinel-l7's own README. | [step 8](docs/journal/arbiter-l8-2026-07-04T1720-ground-truth-export-and-judge-validation.md) |
+| 2026-07-04 | `sentinel_l7_ground_truth.json` | Judge (`qwen3.5:9b-q4_K_M` via Ollama) | Same 25, called unconditionally (bypassing the heuristic gate) | 80% | **92%** | 2/25 verdicts were non-taxonomy tokens (`"reject"`, `"correct"`) instead of a label — a prompt-following gap, not yet fixed. | [step 8](docs/journal/arbiter-l8-2026-07-04T1720-ground-truth-export-and-judge-validation.md) |
+| 2026-07-04 | `compliance_dataset.json` | Judge (`qwen3.5:9b-q4_K_M` via Ollama) | All 15 | 6.7% | — | Fixture defect, not a judge failure: `raw_output` is Synapse-shaped, `expected_label` is Sentinel-shaped — the judge answered correctly in the wrong taxonomy. Superseded by the row above; kept here as a documented false alarm. | [step 5](docs/journal/arbiter-l8-2026-07-04T1512-judge-layer.md) |
 
 **Strict vs. binary**: `sentinel_l7_ground_truth.json`'s `expected_label` is
 only ever `'high'`/`'low'` (ground truth pre-AI knows only a boolean threat
@@ -376,7 +376,7 @@ strict accuracy alone would misrepresent that as a failure.
 ## 🔭 Observability
 
 Every layer function and `evaluate_item` are wrapped in `@traced_layer(...)`
-(`sentinel_eval.observability.decorators`), which is both a decorator and a
+(`arbiter_l8.observability.decorators`), which is both a decorator and a
 context manager — the same helper wraps `run_heuristics` as a whole
 function and wraps individual attempts inside `JudgeCircuitBreaker.judge()`
 as inline blocks (`ollama_attempt`, `flash_attempt`, `heuristics_fallback`),
@@ -387,21 +387,21 @@ final outcome.
 Traces and metrics both export via OTLP/HTTP to
 `${OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces` and `/v1/metrics`
 (`OTEL_EXPORTER_OTLP_ENDPOINT` defaults to `http://localhost:4318`,
-`OTEL_SERVICE_NAME` defaults to `sentinel-eval`) — the same Collector
+`OTEL_SERVICE_NAME` defaults to `arbiter-l8`) — the same Collector
 endpoint EventHorizon and Synapse-L4 export to, so all three show up
 distinctly in Grafana/Tempo. Metrics:
 
-- `sentinel_eval.judge.outcome` (counter, labeled `source=ollama|flash|
+- `arbiter_l8.judge.outcome` (counter, labeled `source=ollama|flash|
   fallback`) — the "% scored by judge vs fallback" signal from
   `docs/adr/0001-standalone-module.md`.
-- `sentinel_eval.layer.latency` (histogram, labeled `layer=...`) — per-layer
+- `arbiter_l8.layer.latency` (histogram, labeled `layer=...`) — per-layer
   latency for the four online layers.
-- `sentinel_eval.harness.metric` (gauge, labeled `metric=precision|recall|
+- `arbiter_l8.harness.metric` (gauge, labeled `metric=precision|recall|
   f1|accuracy`, `label=<label>|overall`) — emitted once per `run_eval()`
   call, so a prompt/model change shows up as a step change in Grafana.
 
 The SDK is initialized as an import-time side effect
-(`sentinel_eval/observability/tracing.py`, `metrics.py`) rather than behind
+(`arbiter_l8/observability/tracing.py`, `metrics.py`) rather than behind
 a lazily-invoked init function — see that module's docstring for why:
 Synapse-L4's current pattern (configuring OTel inside a FastAPI `lifespan`
 handler, after the app and its routes are already constructed) is the
@@ -411,7 +411,7 @@ avoids reproducing that ordering.
 
 ## 🔧 Configuration
 
-`src/sentinel_eval/config.py` holds env-var-with-default settings for
+`src/arbiter_l8/config.py` holds env-var-with-default settings for
 calling real systems-under-test (same style as `observability/_env.py`):
 `SYNAPSE_L4_BASE_URL`, `SENTINEL_L7_MCP_URL`, `OLLAMA_JUDGE_HOST`/
 `OLLAMA_JUDGE_MODEL` (remote, over Tailscale — LLM-as-judge only),
@@ -432,7 +432,7 @@ are account-specific secrets).
 | File | Contents |
 | --- | --- |
 | [README.md](README.md) | Project overview |
-| [docs/adr/0001-standalone-module.md](docs/adr/0001-standalone-module.md) | Why sentinel-eval is standalone, not embedded in Sentinel-L7 |
+| [docs/adr/0001-standalone-module.md](docs/adr/0001-standalone-module.md) | Why arbiter-l8 is standalone, not embedded in Sentinel-L7 |
 | [docs/DEV_GETTING_STARTED.md](docs/DEV_GETTING_STARTED.md) | Full live-verification walkthrough — manual tests against real Sentinel-L7/Synapse-L4/online-layer infrastructure |
 | [docs/journal/](docs/journal/) | Engineering journal — one entry per phase/step |
 | [docs/probes/](docs/probes/) | Paired Anki spaced-repetition probe cards, one file per journal entry |
@@ -451,8 +451,8 @@ are account-specific secrets).
 
 - **Ollama driver-override latency can exceed the adapter's default 10s timeout.** A single Sentinel-L7 `--driver ollama` call has been observed to take anywhere from ~4.7s to past 10s against the real model — occasionally crossing the adapter's default per-request timeout and surfacing as a genuine `httpx.TimeoutException`. Not a bug in the CLI's error handling, which catches it correctly; see `docs/DEV_GETTING_STARTED.md`.
 - **`compliance_dataset.json` isn't adapter-compatible.** Its `input` shape doesn't match either adapter's real request contract (Synapse-shaped fields flattened, missing the `source_id`/`payload` envelope). Use `sentinel_l7_ground_truth.json` for real adapter runs; `compliance_dataset.json` is retained only as a hand-written judge-prompt smoke fixture.
-- **Sentinel-L7's own semantic cache can amplify a single wrong verdict for narrow-profile merchants.** Not a sentinel-eval bug, but it affects online-layer/CLI runs against Sentinel-L7 whenever `--driver` isn't forced — see Sentinel-L7's own README Known Issues.
-- **Synapse-L4's deterministic fast path can produce a self-contradictory Axiom.** `extract()`'s Shape 2 mapping (`_try_direct_extraction`) derives `status` from `raw.payload.status` (`passed`/`success`/`failed`/`error`, checked first) but derives `anomaly_score` from `processed.classification` independently — so an event with `status: "passed"` and `classification: "critical"` deterministically produces `status: "nominal"` + `anomaly_score: 0.9`, which the Judge stage correctly rejects (`anomaly_score >= 0.8 requires status 'critical'`). Confirmed live, reproducible on demand (no LLM involved). Not a sentinel-eval bug — Synapse-L4's own code, out of scope to fix here per `docs/adr/0001-standalone-module.md`'s standalone boundary.
+- **Sentinel-L7's own semantic cache can amplify a single wrong verdict for narrow-profile merchants.** Not a arbiter-l8 bug, but it affects online-layer/CLI runs against Sentinel-L7 whenever `--driver` isn't forced — see Sentinel-L7's own README Known Issues.
+- **Synapse-L4's deterministic fast path can produce a self-contradictory Axiom.** `extract()`'s Shape 2 mapping (`_try_direct_extraction`) derives `status` from `raw.payload.status` (`passed`/`success`/`failed`/`error`, checked first) but derives `anomaly_score` from `processed.classification` independently — so an event with `status: "passed"` and `classification: "critical"` deterministically produces `status: "nominal"` + `anomaly_score: 0.9`, which the Judge stage correctly rejects (`anomaly_score >= 0.8 requires status 'critical'`). Confirmed live, reproducible on demand (no LLM involved). Not a arbiter-l8 bug — Synapse-L4's own code, out of scope to fix here per `docs/adr/0001-standalone-module.md`'s standalone boundary.
 
 ### 🏁 Completed (Phase 3)
 
@@ -467,7 +467,7 @@ are account-specific secrets).
 6. Sentinel-L7 per-request driver override (cross-repo, sentinel-l7 only — bypasses the semantic cache for fresh, cross-provider verdicts)
 7. Cross-provider disagreement layer (`online/disagreement.py`) — live-verified, including genuine external provider failures
 8. Ground-truth export command + taxonomy-consistent fixture (`sentinel_l7_ground_truth.json`) — closed the judge-validation gate (92% binary accuracy for both Sentinel-L7 and the judge)
-9. CLI entrypoint (`sentinel-eval` console script) — offline harness only, live-verified against a real local Sentinel-L7 server
+9. CLI entrypoint (`arbiter-l8` console script) — offline harness only, live-verified against a real local Sentinel-L7 server
 10. CLI error handling widened to catch `SentinelL7Error`/`SynapseL4Error`, not just connection/timeout failures — a rejected request (e.g. a real Synapse-L4 `422 judge_rejected`) now prints a friendly one-liner and exits `1` instead of a raw traceback, live-verified
 11. Judge prompt-following fix (`prompts/judge.txt` v2) — explicit instruction that `verdict` must be a label, not a correctness judgment, paired with a runtime guard in `online/judge.py`'s `_parse_verdict()` that rejects known non-label tokens (`"reject"`, `"correct"`, etc.) and falls through the circuit breaker like any other failure; spot-verified live against the real Ollama judge host
 12. `synapse_l4_ground_truth.json` (12 examples) — hand-derived ground truth for Synapse-L4's deterministic fast-path extraction, live-verified `12/12 (100%)`; also surfaced a real, reproducible contradiction trap in that same fast path (see Known Issues)

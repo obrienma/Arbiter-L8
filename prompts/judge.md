@@ -1,6 +1,6 @@
 # Prompt: Eval-Quality Judge
 
-**Used by:** `sentinel_eval.online.judge` (`_call_ollama`, `_call_gemini_flash`, via `JudgeCircuitBreaker.judge()`)
+**Used by:** `arbiter_l8.online.judge` (`_call_ollama`, `_call_gemini_flash`, via `JudgeCircuitBreaker.judge()`)
 **Model:** `qwen3.5:9b-q4_K_M` (Ollama, primary — same model/host convention as Sentinel-L7's `OllamaDriver`), `gemini-2.0-flash` (Gemini Flash, fallback)
 **Version:** 2
 **Template file:** `prompts/judge.txt`

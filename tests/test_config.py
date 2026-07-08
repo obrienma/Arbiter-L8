@@ -1,4 +1,4 @@
-from sentinel_eval import config
+from arbiter_l8 import config
 
 
 def test_synapse_l4_base_url_default(monkeypatch):

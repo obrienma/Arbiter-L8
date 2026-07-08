@@ -1,5 +1,5 @@
 [project]
-name = "sentinel-eval"
+name = "arbiter-l8"
 version = "0.1.0"
 description = "Standalone AI evaluation framework for Sentinel-L7 and Synapse-L4 outputs"
 readme = "README.md"
@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-sentinel-eval = "sentinel_eval.cli:main"
+arbiter-l8 = "arbiter_l8.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.11.2,<0.12.0"]

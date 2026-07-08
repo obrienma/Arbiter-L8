@@ -4,7 +4,7 @@ import httpx
 import pytest
 import respx
 
-from sentinel_eval.adapters.sentinel_l7 import SentinelL7Error, make_sentinel_l7_system_under_test
+from arbiter_l8.adapters.sentinel_l7 import SentinelL7Error, make_sentinel_l7_system_under_test
 
 MCP_URL = "http://sentinel.test/mcp"
 
@@ -204,7 +204,7 @@ def test_no_driver_argument_sent_when_driver_not_set():
 
 @respx.mock
 def test_default_mcp_url_matches_config():
-    from sentinel_eval import config
+    from arbiter_l8 import config
 
     route = respx.post(config.sentinel_l7_mcp_url()).mock(
         return_value=httpx.Response(

@@ -1,4 +1,4 @@
-# ADR 0001 — Build sentinel-eval as a Standalone Module, Not Embedded in Sentinel-L7
+# ADR 0001 — Build arbiter-l8 as a Standalone Module, Not Embedded in Sentinel-L7
 
 **Status:** Accepted
 **Date:** 2026-07-03
@@ -23,7 +23,7 @@ Two paths were considered:
 
 1. Embed eval logic inside `sentinel-l7`, calling `ComplianceDriver`
    directly.
-2. Build `sentinel-eval` as a separate module/repo with a
+2. Build `arbiter-l8` as a separate module/repo with a
    system-under-test interface, scoring Sentinel-L7 and Synapse-L4 (and
    future services) without being deployed alongside either.
 
@@ -31,7 +31,7 @@ Two paths were considered:
 
 ## Decision
 
-Build `sentinel-eval` as a standalone module with a defined interface:
+Build `arbiter-l8` as a standalone module with a defined interface:
 
 ```python
 def run_eval(system_under_test: Callable, dataset: EvalDataset) -> EvalReport:
@@ -130,9 +130,9 @@ path Sentinel-L7 uses, not maintain its own. This matters concretely right
 now: Sentinel-L7 is mid-migration from Gemini embeddings to
 `nomic-embed-text:v1.5` (768-dim, per
 `docs/adr/0025-ollama-local-embedding-provider.md` in sentinel-l7). If
-`sentinel-eval` embeds independently against a different model or
+`arbiter-l8` embeds independently against a different model or
 dimension, Upstash Vector will reject writes/queries on dimension mismatch
-the moment the two diverge. `sentinel-eval` should call Sentinel-L7's
+the moment the two diverge. `arbiter-l8` should call Sentinel-L7's
 embedding driver (or read its config) rather than hardcoding a model name.
 
 ---
@@ -167,7 +167,7 @@ against ground truth isn't yet trustworthy to evaluate anything else.
 > `sentinel:export-ground-truth` fixture — 92% binary agreement (threat vs.
 > not), matching Sentinel-L7's own accuracy on the same sample. Full
 > results and methodology in
-> `docs/journal/sentinel-eval-2026-07-04T1720-ground-truth-export-and-judge-validation.md`.
+> `docs/journal/arbiter-l8-2026-07-04T1720-ground-truth-export-and-judge-validation.md`.
 > A prompt-following gap was found (occasional non-taxonomy verdict tokens)
 > and is tracked there as a follow-up, not a blocker to this gate.
 
@@ -176,7 +176,7 @@ against ground truth isn't yet trustworthy to evaluate anything else.
 ## Consequences
 
 **Positive:**
-- `sentinel-eval` becomes a citable, standalone artifact independent of
+- `arbiter-l8` becomes a citable, standalone artifact independent of
   Sentinel-L7's repo.
 - Offline eval runs are fully decoupled from LLM availability — the
   harness's core signal (precision/recall on labeled data) works even if

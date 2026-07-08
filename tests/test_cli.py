@@ -4,7 +4,7 @@ import httpx
 import pytest
 import respx
 
-from sentinel_eval.cli import main
+from arbiter_l8.cli import main
 
 SENTINEL_URL = "http://sentinel.test/mcp"
 SYNAPSE_URL = "http://synapse.test"

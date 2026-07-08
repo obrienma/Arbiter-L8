@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from sentinel_eval.harness import run_eval
-from sentinel_eval.models import EvalDataset, EvalPrediction
+from arbiter_l8.harness import run_eval
+from arbiter_l8.models import EvalDataset, EvalPrediction
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "compliance_dataset.json"
 
