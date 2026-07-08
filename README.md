@@ -1,3 +1,7 @@
+<p align="center">
+    <img width="350" alt="Screenshot 2026-07-07 185818" src="https://github.com/user-attachments/assets/efc0e1be-9b3f-49d4-9c70-4a43cb6e2ef7" />
+</p>
+
 # Arbiter-L8
 
 A standalone AI evaluation framework for scoring the outputs of services in the Rhizome Risk system — currently Sentinel-L7 (ComplianceDriver compliance/AML verdicts) and Synapse-L4 (Axiom telemetry validation). It is not embedded in either service: the harness knows nothing about Sentinel or Synapse specifically, only about the normalized prediction contract described below. It's an out-of-band evaluation layer, sitting outside the L4/L7 data path entirely — an informal "Layer 8," judging what the stack produced rather than participating in producing it. See [`docs/adr/0001-standalone-module.md`](docs/adr/0001-standalone-module.md) for the full design rationale.
