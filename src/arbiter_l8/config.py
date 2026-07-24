@@ -2,7 +2,10 @@
 
 Same env-var-with-default pattern as observability/_env.py — deliberately
 not pydantic-settings, to keep one config style across the codebase rather
-than introducing a second one for this narrower need.
+than introducing a second one for this narrower need. `load_dotenv()` runs
+as an import-time side effect so a `.env` file (see `.env.example`) is
+picked up automatically; it never overrides a variable already set in the
+real environment.
 
 OLLAMA_JUDGE_* and OLLAMA_URL/OLLAMA_EMBEDDING_MODEL are independent
 settings on purpose, even though in this environment they currently
@@ -28,6 +31,10 @@ from __future__ import annotations
 
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 def synapse_l4_base_url() -> str:
     return os.environ.get("SYNAPSE_L4_BASE_URL", "http://localhost:8000").rstrip("/")
@@ -47,7 +54,9 @@ def ollama_judge_model() -> str:
 
 def ollama_embedding_host() -> str:
     # Env var name matches Sentinel-L7's OLLAMA_URL exactly (config/services.php).
-    return os.environ.get("OLLAMA_URL", "http://localhost:11434").rstrip("/")
+    # Default matches ollama_judge_host()'s default — in this environment one
+    # Ollama instance serves both roles (see module docstring).
+    return os.environ.get("OLLAMA_URL", "http://100.82.223.70:11434").rstrip("/")
 
 
 def ollama_embedding_model() -> str:

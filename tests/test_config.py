@@ -23,16 +23,17 @@ def test_ollama_judge_host_and_model_defaults(monkeypatch):
     assert config.ollama_judge_model() == "qwen3.5:9b-q4_K_M"
 
 
-def test_ollama_embedding_host_and_model_defaults_differ_from_judge(monkeypatch):
+def test_ollama_embedding_host_default_matches_judge_host(monkeypatch):
     monkeypatch.delenv("OLLAMA_URL", raising=False)
     monkeypatch.delenv("OLLAMA_EMBEDDING_MODEL", raising=False)
-    assert config.ollama_embedding_host() == "http://localhost:11434"
+    monkeypatch.delenv("OLLAMA_JUDGE_HOST", raising=False)
+    assert config.ollama_embedding_host() == "http://100.82.223.70:11434"
     assert config.ollama_embedding_model() == "nomic-embed-text"
-    # The two *code-level defaults* differ (a real deployment may still
-    # point both at the same host, as this dev environment currently does —
-    # see config.py's module docstring). What must never happen is the two
-    # settings silently collapsing into one shared variable in code.
-    assert config.ollama_embedding_host() != config.ollama_judge_host()
+    # The *default* now matches ollama_judge_host()'s default, since one
+    # Ollama instance serves both roles in this environment (see config.py's
+    # module docstring). They remain independently overridable — setting
+    # only one via env still leaves the other on its own default.
+    assert config.ollama_embedding_host() == config.ollama_judge_host()
 
 
 def test_ollama_embedding_host_env_var_matches_sentinel_l7_convention(monkeypatch):
