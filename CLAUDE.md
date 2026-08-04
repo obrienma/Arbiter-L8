@@ -18,7 +18,7 @@ uv run pytest    # run the test suite
 
 At the end of any development phase, before proposing a commit or when the
 user requests a commit message, follow the journal-anki skill at
-`~/.claude/skills/journal-anki.md` to write a journal entry
+`~/.claude/skills/journal-anki/SKILL.md` to write a journal entry
 (`docs/journal/`) and paired probe cards (`docs/probes/`). Do not use
 `LEARNING_LOG.md` — this repo never adopted it; journal-anki is the only
 logging convention here.
