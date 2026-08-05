@@ -8,20 +8,26 @@
 
 ```mermaid
 flowchart LR
-    subgraph Offline["Offline (ground truth)"]
-        F[Fixture JSON] --> H[run_eval]
-        H --> R[EvalReport]
-    end
-    subgraph Online["Online (unlabeled traffic)"]
-        P[EvalPrediction] --> L1[heuristics]
-        L1 -->|flagged| L2[disagreement]
-        L1 -->|flagged| L3[consistency]
-        L1 -->|flagged| L4[judge]
-        L2 --> O[OnlineScoringResult]
-        L3 --> O
-        L4 --> O
-    end
-    CLI[arbiter-l8 CLI] --> H
+    MCP["Sentinel-L7 MCP<br/>analyze-transaction"] --> P[EvalPrediction]
+
+    P --> L1[heuristics]
+    L1 --> NG["narrative_grounding<br/>ADR-0003"]
+    L1 -- heuristic_result.flagged --> G{{escalate?}}
+    NG -- ng_flagged --> G
+
+    G -->|yes| L2["disagreement<br/>open question, no ADR"]
+    G -->|yes| L3[consistency]
+    G -->|yes| L4[judge]
+    G -->|no| O
+
+    L2 --> O["OnlineScoringResult<br/>(disagreement/consistency/judge<br/>= None if not escalated)"]
+    L3 --> O
+    L4 --> O
+
+    classDef scoped stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
+    classDef openquestion stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
+    class NG scoped
+    class L2 openquestion
 ```
 
 ---
@@ -37,6 +43,8 @@ flowchart LR
 - [🏗️ Architecture](#️-architecture)
   - [📐 The Prediction Contract](#-the-prediction-contract)
   - [🔀 Offline vs Online Evaluation](#-offline-vs-online-evaluation)
+    - [Offline (ground truth) — `arbiter_l8.harness.run_eval`](#offline-ground-truth--arbiter_l8harnessrun_eval)
+    - [Online (unlabeled, realistic traffic) — `arbiter_l8.online.*`](#online-unlabeled-realistic-traffic--arbiter_l8online)
   - [🔌 Plugging in a New System-Under-Test](#-plugging-in-a-new-system-under-test)
 - [📊 Benchmark Results](#-benchmark-results)
 - [🔭 Observability](#-observability)
@@ -233,6 +241,7 @@ what earlier layers flag as ambiguous — not on every item.
 | Layer | File | Status | Purpose |
 | --- | --- | --- | --- |
 | 1. Heuristics | `online/heuristics.py` | ✅ Implemented | Rule-based checks (confidence thresholds, field-contradiction checks). Free, deterministic, always available. |
+| 1b. Narrative Grounding | `online/narrative_grounding.py` | 📝 Scoped (ADR-0003), not yet implemented | Regex + regulatory-keyword pre-filter on `narrative` free text, escalating to a `policies`-namespace Upstash Vector re-query when an `embed_fn` is supplied. Flags citation-shaped or regulation-referencing claims that aren't grounded in `policy_refs` or real retrieved policy content — the gap Sentinel-L7's ADR-0034 (`policy_refs` fabrication guard) explicitly leaves open. |
 | 2. Disagreement | `online/disagreement.py` | ✅ Implemented, live-verified | Cross-provider/cross-run disagreement (e.g. Sentinel-L7's dual Gemini/OpenRouter `ComplianceDriver`). |
 | 3. Consistency | `online/consistency.py` | ✅ Implemented, live-verified | Embedding-based consistency against Upstash Vector's `transactions` namespace. |
 | 4. Judge | `online/judge.py` | ✅ Implemented, live-verified, validated | LLM-as-judge behind a circuit breaker (Ollama → Gemini Flash → heuristics-only), reserved for the ambiguous tail. |
@@ -481,6 +490,7 @@ committed template.
 - [ ] **Ground truth for genuine LLM-driven Axiom extraction** — `synapse_l4_ground_truth.json` only covers the deterministic fast path (no LLM involved); ADR-0001 still flags real extraction-correctness ground truth as unsolved, out of scope for Phase 3.
 - [ ] **Add an offline-eval panel to the Grafana dashboard** — `run_eval()` emits an `arbiter_l8.harness.metric` gauge (precision/recall/f1/accuracy per call) so a prompt/model swap should be visible as a step change over time, but the current dashboard only covers the online pipeline; no panel plots this metric yet.
 - [ ] **Mirror the confirmed-flowing observability status in Rhizome Lens's own service status table** — this repo's traces/metrics are now verified landing in a live Collector (see [🔭 Observability](#-observability)); that status isn't yet reflected on the Rhizome Lens side.
+- [ ] **Build the narrative-only grounding heuristic scoped in ADR-0003** — a new `online/narrative_grounding.py` check (regex + regulatory-keyword pre-filter, escalating to a `policies`-namespace Upstash Vector re-query) flagging narrative prose that makes an ungrounded citation-shaped claim; design is scoped, no code written yet. See `docs/adr/0003-narrative-grounding-heuristic.md`.
 
 > **Not planned:** a CLI surface for the online layers. This is a documented non-goal, not deferred-until-later work — wiring providers/`embed_fn`/judge is a per-deployment decision (see [📦 CLI Reference](#-cli-reference)), not a one-shot command.
 
