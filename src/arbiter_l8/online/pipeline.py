@@ -21,12 +21,14 @@ from arbiter_l8.online.consistency import ConsistencyResult, EmbeddingFn, score_
 from arbiter_l8.online.disagreement import DisagreementResult, ProviderCall, score_disagreement
 from arbiter_l8.online.heuristics import HeuristicResult, run_heuristics
 from arbiter_l8.online.judge import JudgeCircuitBreaker, JudgeVerdict
+from arbiter_l8.online.narrative_grounding import NarrativeGroundingResult, check_narrative_grounding
 
 
 @dataclass
 class OnlineScoringResult:
     prediction_id: str
     heuristic_result: HeuristicResult
+    narrative_grounding_result: NarrativeGroundingResult
     disagreement_result: DisagreementResult | None = None
     consistency_result: ConsistencyResult | None = None
     judge_verdict: JudgeVerdict | None = None
@@ -44,6 +46,7 @@ def evaluate_item(
     trace.get_current_span().set_attribute("prediction_id", prediction.id)
 
     heuristic_result = run_heuristics(prediction)
+    narrative_grounding_result = check_narrative_grounding(prediction, embed_fn=embed_fn)
 
     disagreement_result: DisagreementResult | None = None
     consistency_result: ConsistencyResult | None = None
@@ -61,6 +64,7 @@ def evaluate_item(
     return OnlineScoringResult(
         prediction_id=prediction.id,
         heuristic_result=heuristic_result,
+        narrative_grounding_result=narrative_grounding_result,
         disagreement_result=disagreement_result,
         consistency_result=consistency_result,
         judge_verdict=judge_verdict,

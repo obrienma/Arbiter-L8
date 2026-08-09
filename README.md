@@ -24,9 +24,7 @@ flowchart LR
     L3 --> O
     L4 --> O
 
-    classDef scoped stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
     classDef openquestion stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
-    class NG scoped
     class L2 openquestion
 ```
 
@@ -241,10 +239,28 @@ what earlier layers flag as ambiguous — not on every item.
 | Layer | File | Status | Purpose |
 | --- | --- | --- | --- |
 | 1. Heuristics | `online/heuristics.py` | ✅ Implemented | Rule-based checks (confidence thresholds, field-contradiction checks). Free, deterministic, always available. |
-| 1b. Narrative Grounding | `online/narrative_grounding.py` | 📝 Scoped (ADR-0003), not yet implemented | Regex + regulatory-keyword pre-filter on `narrative` free text, escalating to a `policies`-namespace Upstash Vector re-query when an `embed_fn` is supplied. Flags citation-shaped or regulation-referencing claims that aren't grounded in `policy_refs` or real retrieved policy content — the gap Sentinel-L7's ADR-0034 (`policy_refs` fabrication guard) explicitly leaves open. |
+| 1b. Narrative Grounding | `online/narrative_grounding.py` | ✅ Implemented (ADR-0003), unit-tested — Stage 3 not yet live-verified | Regex + regulatory-keyword pre-filter on `narrative` free text, escalating to a `policies`-namespace Upstash Vector re-query when an `embed_fn` is supplied. Flags citation-shaped or regulation-referencing claims that aren't grounded in `policy_refs` or real retrieved policy content — the gap Sentinel-L7's ADR-0034 (`policy_refs` fabrication guard) explicitly leaves open. Runs unconditionally right after heuristics (its regex/keyword stages are free), not gated behind `heuristic_result.flagged` like layers 2-4. |
 | 2. Disagreement | `online/disagreement.py` | ✅ Implemented, live-verified | Cross-provider/cross-run disagreement (e.g. Sentinel-L7's dual Gemini/OpenRouter `ComplianceDriver`). |
 | 3. Consistency | `online/consistency.py` | ✅ Implemented, live-verified | Embedding-based consistency against Upstash Vector's `transactions` namespace. |
 | 4. Judge | `online/judge.py` | ✅ Implemented, live-verified, validated | LLM-as-judge behind a circuit breaker (Ollama → Gemini Flash → heuristics-only), reserved for the ambiguous tail. |
+
+**1b. Narrative Grounding** — closes the gap Sentinel-L7's ADR-0034 (`policy_refs`
+fabrication guard) explicitly leaves open: that guard sanitizes the structured
+`policy_refs` field but never touches free-text `narrative`, which can still
+assert a citation-shaped or regulation-referencing claim ungrounded in
+anything actually retrieved. `check_narrative_grounding()` no-ops for Tier-3
+(`source: fallback`) predictions and any payload without a `narrative` key,
+matching the opportunistic-key contract `heuristics.py`'s own narrative
+checks use. Stage 1 (regex token extraction) and Stage 2 (decision tree
+against `policy_refs`, folding Unicode hyphens and stripping trailing
+`" Section N"` suffixes — the two concrete mismatches spike 0001 found) are
+free and always run; only the Stage 3 semantic re-query against Upstash
+Vector's `policies` namespace needs `embed_fn`, and no-ops rather than errors
+when it's absent, the same dependency-gated-escalation shape ADR-0002 uses
+for layers 2-4. `tests/test_narrative_grounding.py` covers the full decision
+tree against `respx`-mocked Upstash calls, using spike 0001's real Sample A/B
+narrative text as fixtures — not yet exercised against a live Upstash Vector
+index.
 
 **2. Disagreement** — reuses infrastructure the system-under-test already
 has. `score_disagreement()` calls each named provider with the same input
@@ -455,7 +471,11 @@ names Sentinel-L7 uses, so one value covers both services), and
 `UPSTASH_VECTOR_REST_URL`/`UPSTASH_VECTOR_REST_TOKEN`/
 `UPSTASH_VECTOR_THRESHOLD` (same env var names and default threshold as
 Sentinel-L7's `config/services.php` — no default URL/token, since those
-are account-specific secrets).
+are account-specific secrets), and `UPSTASH_VECTOR_POLICIES_THRESHOLD`
+(defaults to `0.70`, matching Sentinel-L7's own policy-retrieval threshold —
+deliberately distinct from `UPSTASH_VECTOR_THRESHOLD`'s `0.90` default, since
+narrative grounding's Stage 3 (ADR-0003) re-queries the `policies` namespace,
+not the `transactions` namespace layer 3 consistency-scoring uses).
 
 Copy [`.env.example`](.env.example) to `.env` and fill in the
 account-specific secrets — `config.py` calls `load_dotenv()` as an
@@ -472,6 +492,8 @@ committed template.
 | [README.md](README.md) | Project overview |
 | [docs/adr/0001-standalone-module.md](docs/adr/0001-standalone-module.md) | Why Arbiter-L8 is standalone, not embedded in Sentinel-L7 |
 | [docs/adr/0002-online-escalation-pipeline.md](docs/adr/0002-online-escalation-pipeline.md) | Design record for the cost-ordered, escalation-gated online scoring pipeline |
+| [docs/adr/0003-narrative-grounding-heuristic.md](docs/adr/0003-narrative-grounding-heuristic.md) | Design record for the narrative-only grounding heuristic (`online/narrative_grounding.py`) |
+| [docs/spikes/0001-narrative-citation-format.md](docs/spikes/0001-narrative-citation-format.md) | Spike that found `narrative` never cites `policy_refs` verbatim — motivated ADR-0003 |
 | [docs/USER_STORIES.md](docs/USER_STORIES.md) | User stories by actor/domain — implemented, aspirational, and explicitly deferred |
 | [docs/DEV_GETTING_STARTED.md](docs/DEV_GETTING_STARTED.md) | Full live-verification walkthrough — manual tests against real Sentinel-L7/Synapse-L4/online-layer infrastructure |
 | [docs/journal/](docs/journal/) | Engineering journal — one entry per phase/step |
@@ -490,7 +512,8 @@ committed template.
 - [ ] **Ground truth for genuine LLM-driven Axiom extraction** — `synapse_l4_ground_truth.json` only covers the deterministic fast path (no LLM involved); ADR-0001 still flags real extraction-correctness ground truth as unsolved, out of scope for Phase 3.
 - [ ] **Add an offline-eval panel to the Grafana dashboard** — `run_eval()` emits an `arbiter_l8.harness.metric` gauge (precision/recall/f1/accuracy per call) so a prompt/model swap should be visible as a step change over time, but the current dashboard only covers the online pipeline; no panel plots this metric yet.
 - [ ] **Mirror the confirmed-flowing observability status in Rhizome Lens's own service status table** — this repo's traces/metrics are now verified landing in a live Collector (see [🔭 Observability](#-observability)); that status isn't yet reflected on the Rhizome Lens side.
-- [ ] **Build the narrative-only grounding heuristic scoped in ADR-0003** — a new `online/narrative_grounding.py` check (regex + regulatory-keyword pre-filter, escalating to a `policies`-namespace Upstash Vector re-query) flagging narrative prose that makes an ungrounded citation-shaped claim; design is scoped, no code written yet. See `docs/adr/0003-narrative-grounding-heuristic.md`.
+- [ ] **Live-verify narrative grounding's Stage 3 semantic re-query** (`online/narrative_grounding.py`, ADR-0003) against a real Upstash Vector `policies` index — `tests/test_narrative_grounding.py` only mocks the HTTP boundary so far, unlike layer 3 consistency's live-verified Upstash call.
+- [ ] **Tune ADR-0003's Stage 2 regulatory-keyword list and validate Stage 3's flag rate** against a `high`/`critical`-risk narrative sample once one becomes available in either Sentinel-L7 store — ADR-0003's own Follow-up notes neither spike 0001 pull (n=2, n=49) contained one.
 
 > **Not planned:** a CLI surface for the online layers. This is a documented non-goal, not deferred-until-later work — wiring providers/`embed_fn`/judge is a per-deployment decision (see [📦 CLI Reference](#-cli-reference)), not a one-shot command.
 
@@ -523,5 +546,6 @@ committed template.
 10. CLI error handling widened to catch `SentinelL7Error`/`SynapseL4Error`, not just connection/timeout failures — a rejected request (e.g. a real Synapse-L4 `422 judge_rejected`) now prints a friendly one-liner and exits `1` instead of a raw traceback, live-verified
 11. Judge prompt-following fix (`prompts/judge.txt` v2) — explicit instruction that `verdict` must be a label, not a correctness judgment, paired with a runtime guard in `online/judge.py`'s `_parse_verdict()` that rejects known non-label tokens (`"reject"`, `"correct"`, etc.) and falls through the circuit breaker like any other failure; spot-verified live against the real Ollama judge host
 12. `synapse_l4_ground_truth.json` (12 examples) — hand-derived ground truth for Synapse-L4's deterministic fast-path extraction, live-verified `12/12 (100%)`; also surfaced a real, reproducible contradiction trap in that same fast path (see Known Issues)
+13. Narrative-only grounding heuristic (`online/narrative_grounding.py`, ADR-0003) — regex + regulatory-keyword pre-filter escalating to a `policies`-namespace Upstash Vector re-query; new `config.upstash_vector_policies_namespace()`/`upstash_vector_policies_similarity_threshold()` accessors; wired unconditionally into `pipeline.py`'s `evaluate_item` right after heuristics, adding `narrative_grounding_result` to `OnlineScoringResult`; `tests/test_narrative_grounding.py` covers the full decision tree (not yet live-verified, see Roadmap)
 
 </details>

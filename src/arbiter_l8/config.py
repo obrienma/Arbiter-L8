@@ -100,3 +100,15 @@ def upstash_vector_transactions_namespace() -> str:
     # not "default" (an earlier, looser reading of the ADR text assumed
     # that name; the real constant is "transactions").
     return "transactions"
+
+
+def upstash_vector_policies_namespace() -> str:
+    # Matches Sentinel-L7's policy-retrieval namespace (ADR-0003 Stage 3).
+    return "policies"
+
+
+def upstash_vector_policies_similarity_threshold() -> float:
+    # Distinct from upstash_vector_similarity_threshold()'s 0.90 default —
+    # matches Sentinel-L7's own policy-retrieval threshold (ADR-0003 Stage 3),
+    # not the transactions-namespace cache-hit threshold.
+    return float(os.environ.get("UPSTASH_VECTOR_POLICIES_THRESHOLD", "0.70"))

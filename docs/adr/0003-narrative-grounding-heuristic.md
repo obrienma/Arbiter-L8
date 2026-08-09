@@ -230,11 +230,12 @@ an arbitrary namespace.
   possibly miscalibrated 0.70 threshold), that is further evidence for a
   Sentinel-L7 corpus-growth or threshold-retune decision — out of scope
   for arbiter-l8 to fix directly, per `docs/adr/0001-standalone-module.md`.
-- No dedicated test file for `online/` checks exists yet
-  (`heuristics.py` itself has no `test_heuristics.py`; its only coverage
-  is indirect, via `test_metrics.py` and `test_pipeline.py`). Building
-  this module should add `tests/test_narrative_grounding.py`, following
-  `test_consistency.py`'s `respx`-mocked-Upstash style for Stage 3 and
-  using spike 0001's real samples (Sample A, Sample B, and
-  representative n=49 pairs) as fixture data — not written as part of
-  this ADR, since this is a scoping decision, not an implementation.
+- ~~No dedicated test file for `online/` checks exists yet...~~ **Done** —
+  `tests/test_narrative_grounding.py` was added alongside the
+  implementation, following `test_consistency.py`'s `respx`-mocked-Upstash
+  style for Stage 3 and using spike 0001's real Sample A/B narrative text
+  as fixture data.
+- Stage 3's semantic re-query is unit-tested against a mocked Upstash
+  boundary only — still needs live verification against a real Upstash
+  Vector `policies` index, the same way layer 3 consistency scoring was
+  (see README Roadmap).

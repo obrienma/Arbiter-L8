@@ -42,12 +42,16 @@ def test_evaluate_item_only_runs_heuristics_when_not_flagged():
     result = evaluate_item(prediction)
 
     assert result.heuristic_result.flagged is False
+    # No "narrative" key in raw_output -> no-op, same opportunistic contract
+    # as heuristics.py's own narrative checks.
+    assert result.narrative_grounding_result.flagged is False
+    assert result.narrative_grounding_result.stage == "skip"
     assert result.disagreement_result is None
     assert result.consistency_result is None
     assert result.judge_verdict is None
 
     span_names = {s.name for s in exporter.get_finished_spans()}
-    assert span_names == {"heuristics_check", "evaluate_item"}
+    assert span_names == {"heuristics_check", "narrative_grounding_check", "evaluate_item"}
 
 
 def test_evaluate_item_escalates_to_judge_when_flagged_and_judge_supplied(monkeypatch):
@@ -73,7 +77,13 @@ def test_evaluate_item_escalates_to_judge_when_flagged_and_judge_supplied(monkey
     assert result.consistency_result is None
 
     span_names = {s.name for s in exporter.get_finished_spans()}
-    assert span_names == {"heuristics_check", "ollama_attempt", "judge_call", "evaluate_item"}
+    assert span_names == {
+        "heuristics_check",
+        "narrative_grounding_check",
+        "ollama_attempt",
+        "judge_call",
+        "evaluate_item",
+    }
     assert "cross_provider_disagreement" not in span_names
     assert "embedding_consistency" not in span_names
 
@@ -100,7 +110,12 @@ def test_evaluate_item_escalates_to_disagreement_when_flagged_and_providers_supp
     assert result.judge_verdict is None
 
     span_names = {s.name for s in exporter.get_finished_spans()}
-    assert span_names == {"heuristics_check", "cross_provider_disagreement", "evaluate_item"}
+    assert span_names == {
+        "heuristics_check",
+        "narrative_grounding_check",
+        "cross_provider_disagreement",
+        "evaluate_item",
+    }
 
 
 @respx.mock
@@ -126,7 +141,12 @@ def test_evaluate_item_escalates_to_consistency_when_flagged_and_embed_fn_suppli
     assert result.judge_verdict is None
 
     span_names = {s.name for s in exporter.get_finished_spans()}
-    assert span_names == {"heuristics_check", "embedding_consistency", "evaluate_item"}
+    assert span_names == {
+        "heuristics_check",
+        "narrative_grounding_check",
+        "embedding_consistency",
+        "evaluate_item",
+    }
 
 
 @respx.mock
@@ -159,6 +179,7 @@ def test_evaluate_item_runs_all_four_layers_when_flagged_and_everything_supplied
     span_names = {s.name for s in exporter.get_finished_spans()}
     assert span_names == {
         "heuristics_check",
+        "narrative_grounding_check",
         "cross_provider_disagreement",
         "embedding_consistency",
         "ollama_attempt",
