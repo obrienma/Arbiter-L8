@@ -1,129 +1,130 @@
-# Spike 0001 — Narrative Citation Format in Sentinel-L7 Output
+# Spike 0001: Narrative citation format in Sentinel-L7 output
 
-**Status:** Resolved **Date:** 2026-08-01 **Owner:** coder **Related:** proposed narrative-grounding heuristic for arbiter-l8 (attribution/specificity split, per Emmimal/llm-eval-layer pattern)
+|  |  |
+| --- | --- |
+| **Status** | Resolved |
+| **Date** | 2026-08-01 |
+| **Owner** | Amanda |
+| **Related** | Proposed narrative-grounding heuristic for arbiter-l8 (attribution/specificity split, per the Emmimal/llm-eval-layer pattern) |
 
----
+## Result
+
+-   **Regex-only extraction against `policy_refs` will not work.** Across 49 live samples, 18 had a non-empty `policy_refs`, and none of those 18 had a single `policy_refs` value appear verbatim in its narrative.
+-   **A hybrid approach is better supported:** regex where a recognizable citation token exists, semantic similarity between narrative sentences and `policy_refs` content for everything else. Tokens were rare. Of all 51 real narratives, only one (n=2 Sample A) contained one.
+-   **Tier 3 (rule-based fallback) needs an unconditional skip.** Its narratives are fixed templates that cannot contain a citation.
+-   **New blocker: `policy_refs` is not reliable ground truth.** RAG retrieved zero chunks on every call, yet the model still returned confident `policy_refs` values. A heuristic that checks narrative against `policy_refs` would be checking one unreliable field against another.
+
+**Next:** before building the extractor, measure `policy_refs` fabrication rate against `chunk_count` from the RAG retrieval log, either as a follow-up spike or as the first step of the build.
 
 ## Question
 
-Sentinel-L7's `raw_output` includes a `narrative` field (free text) alongside `policy_refs` (the RAG-retrieved policy documents it should be grounded in). A proposed arbiter-l8 heuristic would flag "confident but ungrounded" narratives by regex-extracting citation-like tokens (section numbers, dollar thresholds, policy IDs) from `narrative` and checking whether they appear in `policy_refs`.
+Sentinel-L7's `raw_output` has a free-text `narrative` and `policy_refs`, the RAG-retrieved policy documents the narrative should be grounded in. The proposed arbiter-l8 heuristic flags "confident but ungrounded" narratives by extracting citation-like tokens (section numbers, dollar thresholds, policy IDs) from `narrative` and checking them against `policy_refs`.
 
-This assumes citations show up in a consistent, extractable format. That assumption hasn't been checked against real output. This spike exists to check it before any extraction logic gets written.
+That assumes citations appear in a consistent, extractable format, which had not been checked. If they don't, an extractor silently undercounts: it looks right on hand-picked examples and misses most real cases. This spike checks the assumption before any extraction logic is written.
 
-## Why this matters
+**Check for each sample:**
 
-If the format is inconsistent, or citations are frequently expressed as prose rather than structured tokens, a regex-based extractor will silently undercount — producing a heuristic that looks like it works on hand-picked examples but misses most real cases. Better to find that out now than after the scorer ships.
+1.  **Format consistency.** Do specific claims appear in a few recognizable patterns (e.g. `§205.6(b)`, `policy #1042`), or is phrasing too varied for a fixed regex set?
+2.  **Tier 3 narrative.** Does the rule-based fallback populate `narrative` at all? This decides whether the heuristic needs a no-op guard.
+3.  **Correspondence with `policy_refs`.** Do citations map 1:1 to `policy_refs` entries, or does the model reference policy content in prose with no extractable ID?
+4.  **False positives.** Do non-citation numbers in narratives (amounts, timestamps, scores) risk being misread as policy references?
 
-## What to pull
+## Method
 
--   30–50 real `narrative` + `policy_refs` pairs from Sentinel-L7, spanning all three cascade tiers (semantic cache hit, Ollama + RAG, rule-based fallback). Check the response's driver/source field to confirm which tier produced each sample — narrative style may differ by tier.
--   Prefer live/recent production or staging logs over synthetic test fixtures — hand-written test narratives won't reflect real model phrasing quirks.
--   Include a mix of `risk_level` values, not just `critical`/`high` — low-risk narratives may not cite anything, which matters for the "missing citation" edge case.
+Two passes on 2026-08-01. The first was meant to be the whole spike but produced too few samples.
 
-## What to check for each sample
+**Pass 1: stored data (n=2).** Real `narrative`/`policy_refs` pairs from two live Sentinel-L7 stores:
 
-1.  **Citation format consistency** — do specific claims (dollar thresholds, regulation/section numbers, policy IDs) appear in a small number of recognizable patterns (e.g. `§205.6(b)`, `Reg-E 205.6`, `policy #1042`), or is phrasing inconsistent enough that a fixed regex set will miss most of them?
-2.  **Does the rule-based fallback tier populate `narrative` at all?** — confirm whether Tier 3 (no AI model involved) leaves narrative empty/null or generates templated text. Determines whether the new heuristic needs a no-op guard for that path.
-3.  **Do citations correspond 1:1 with `policy_refs` entries**, or does the model sometimes reference policy content in prose without a formal-looking citation token at all (e.g. "per standard merchant category guidelines" with no extractable ID)? If prose-only references are common, note it — pure regex extraction will undercount, and the design may need a fallback to semantic-only attribution for those cases.
-4.  **False-positive risk** — are there numbers in narrative that aren't citations at all (transaction amounts, timestamps) that a naive regex could misclassify as policy references?
+-   Upstash Vector `transactions` namespace (queried via the `/range` REST endpoint). This is the durable store for Tier 2 (`cache_miss`) results. Tier 1 (`cache_hit`) reuses the same `analysis.narrative` and `analysis.policy_refs` verbatim, so it is not a separate style to sample.
+-   Postgres `compliance_events` (Neon), the Axiom/anomaly pipeline's persistence.
 
-## Deliverable
+The deployment turned out to be a low-traffic dev/demo instance. The `transactions` namespace held 2 vectors. `compliance_events` had 5 rows with `driver_used = 'openrouter'`, all with `audit_narrative IS NULL`, which look like leftover seed data. That left 2 usable samples against a target of 30 to 50.
 
-A short written summary appended to this file (not code) covering:
+**Pass 2: live run (n=49).** To close the gap, `php artisan sentinel:stream --limit=50` was run against a live `sentinel:watch` consumer. A temporary `Log::info('ARBITER_SPIKE_SAMPLE', $result)` in `WatchTransactions::processMessage()` captured the full `narrative`, `policy_refs`, `risk_level` and `confidence` per transaction.
 
--   The actual citation format(s) observed, with a few representative examples.
--   Whether the format is consistent enough for regex extraction, or needs a different approach (e.g. semantic-only attribution, or a hybrid).
--   Confirmation of what the rule-based fallback tier produces for `narrative`.
+Getting a working AI driver took three attempts:
 
-This determines whether the narrative-grounding heuristic proceeds as originally scoped or needs a redesigned extraction approach.
+| Driver | Outcome |
+| --- | --- |
+| Ollama (`OLLAMA_URL`) | Private Tailscale IP, unreachable from the sandbox |
+| `SENTINEL_AI_DRIVER=gemini` | Free-tier quota exhausted (`limit: 0`, not transient) |
+| `meta-llama/llama-3.3-8b-instruct:free` on OpenRouter | No endpoints remain |
+| **`openai/gpt-oss-20b:free` on OpenRouter** | **Worked; used for the batch** |
 
----
+Of 51 transactions processed, 49 were `source: cache_miss` (real AI calls) with no duplicates or errors. The other 2 were Tier 3 fallback rows from before the driver fix and were excluded.
 
 ## Findings
 
-**Date conducted:** 2026-08-01
+### 1\. Format consistency: inconsistent
 
-### Data pulled
+**Live batch (n=49).** No narrative contained a citation token: no `§`, no `Section N`, no formal ID. Narratives describe the situation, while `policy_refs` is a separately generated tag.
 
-Real stored `narrative`/`policy_refs` pairs, not synthetic fixtures, from two live Sentinel-L7 stores:
+> narrative: "The transaction involves a remittance service named 'RapidRemit Structuring Node' with an amount below $10,000, raising moderate concerns about potential structuring activity." policy\_refs: `["Anti-Money Laundering (AML) Policy", "Structuring Policy"]`
 
--   Upstash Vector `transactions` namespace (`VectorCacheService`, queried via the `/range` REST endpoint) — this is the durable store for the Tier 2 (`cache_miss`) AI result; Tier 1 (`cache_hit`) reuses this exact same `analysis.narrative`/`analysis.policy_refs` verbatim, so it is not a separate style to sample.
--   Postgres `compliance_events` table (Neon, queried via `run_sql`) — the Axiom/anomaly pipeline's persistence, via `driver_used`/`routed_to_ai`/`audit_narrative`.
+> narrative: "This is a small retail purchase at a local farm market with no indicators of suspicious activity." policy\_refs: `["Retail Transaction Policy"]`
 
-**Sample size caveat, discovered mid-spike:** this deployment does not have the traffic volume the spike assumed. The `transactions` vector namespace holds **2** vectors total (`vectorCount: 2` from `/info`). `compliance_events` has 5 rows with `driver_used = 'openrouter'`, but all 5 have `audit_narrative IS NULL` — meaning zero usable real narrative samples exist for the Axiom pipeline's AI path; those rows look like leftover synthetic/seed test data rather than real narrative-producing traffic. Total usable real AI-narrative samples: **2**, not the 30–50 targeted. This is a low-traffic dev/demo instance, not a system with meaningful production history. Noted as a finding in its own right — see Recommendation below.
+**Stored data (n=2).** The only narratives with citation-like tokens:
 
-### The 2 real samples
+> **Sample A** (`risk_level: low`, `policy_refs: ["AML-BSA-001", "GDPR-001"]`): "The transaction of $100 CAD to Test Co presents low compliance risk as it falls well below the CTR threshold and does not trigger SAR filing requirements based on current policy criteria; however, automated anomaly scoring above 0.80 would mandate a human review under **AML-BSA-001 Section 5** and **GDPR-001 Section 4**."
 
-**Sample A** (`risk_level: low`, `policy_refs: ["AML-BSA-001", "GDPR-001"]`):
+Sample A's tokens carry a `" Section N"` suffix that is not in the `policy_refs` strings, so an exact-match regex misses both.
 
-> "The transaction of $100 CAD to Test Co presents low compliance risk as it falls well below the CTR threshold and does not trigger SAR filing requirements based on current policy criteria; however, automated anomaly scoring above 0.80 would mandate a human review under **AML-BSA-001 Section 5** and **GDPR-001 Section 4**."
+> **Sample B** (`risk_level: medium`, `policy_refs: ["BSA Requirements (OFAC Screening)", "GDPR-001", "Sanctions Compliance Policy"]`): "The transaction involving Pacific Forex Exchange requires screening against OFAC, EU, and UN sanctions lists per regulatory mandates, with automated decision-making logic fully documented to ensure data subject rights under GDPR are respected if flagged for investigation."
 
-**Sample B** (`risk_level: medium`, `policy_refs: ["BSA Requirements (OFAC Screening)", "GDPR-001", "Sanctions Compliance Policy"]`):
+Sample B matches none of its `policy_refs` verbatim. It says "GDPR", not `GDPR-001`.
 
-> "The transaction involving Pacific Forex Exchange requires screening against OFAC, EU, and UN sanctions lists per regulatory mandates, with automated decision-making logic fully documented to ensure data subject rights under GDPR are respected if flagged for investigation."
+**The ground-truth side has no stable grammar either.**
 
-### Answers to the four check questions
+-   `policy_refs` mixes short codes (`AML-BSA-001`) with full prose titles (`Sanctions Compliance Policy`).
+-   The live batch produced 10 distinct strings for a handful of underlying concepts.
+-   Some are character-level near-duplicates: `Anti-Money Laundering (AML) Policy` vs `Anti‑Money Laundering Policy`, the second using a non-breaking hyphen (U+2011) instead of U+002D. A regex tuned to one phrasing misses the other.
 
-1.  **Citation format consistency — inconsistent, and not just at the margins.** Sample A's narrative cites `AML-BSA-001 Section 5` / `GDPR-001 Section 4` — recognizable tokens, but with a `" Section N"` suffix appended that isn't part of the `policy_refs` string itself, so an exact-match regex against `policy_refs` values would still miss both. Sample B's narrative names "OFAC", "EU", "UN sanctions lists", and "GDPR" in prose but **matches none of its own `policy_refs` entries verbatim** — not `BSA Requirements (OFAC Screening)`, not `GDPR-001` (narrative only says "GDPR"), not `Sanctions Compliance Policy`. `policy_refs` itself isn't a consistent format either — it mixes short codes (`AML-BSA-001`) with full prose titles (`Sanctions Compliance Policy`), so there's no single citation grammar to target even on the ground-truth side.
-2.  **Rule-based fallback (Tier 3) narrative population — confirmed via code, not sampled (no real Tier 3 AI-adjacent narrative exists to sample since it's deterministic):**
-    -   Transaction path (`ThreatAnalysisService.php:11-18,36` via `TransactionProcessorService.php:171`): narrative is always one of two fixed templates — `"High value transaction at {merchant} (${amount})"` or `"Layer 7 Clear: {merchant} - OK"` — and `policy_refs` is hardcoded to `[]` (`TransactionProcessorService.php:173`). No policy context is even fetched on this path.
-    -   Axiom/anomaly path (`AxiomThreatAnalysisService.php:23`): fixed template `"Rule-based fallback: anomaly score {score} exceeds audit threshold {threshold} for domain {domain} — AI analysis unavailable."`
-    -   Both are pure string interpolation of already-structured fields (merchant, amount, score, threshold, domain) — never natural-language citations. **The heuristic needs an unconditional no-op guard for Tier 3**: skip extraction entirely rather than running the regex against a narrative that mathematically cannot contain a citation.
-3.  **1:1 correspondence between citations and `policy_refs` — no, confirmed by both real samples.** Sample A: partial/suffixed match. Sample B: zero verbatim matches despite 3 `policy_refs` entries and multiple related terms in prose. This directly confirms the spike's concern in the "why this matters" section — prose-only/paraphrased references are not an edge case here, they're what both available real samples do.
-4.  **False-positive risk from non-citation numbers — present.** Sample A contains `$100`, `0.80` (the anomaly-score threshold restated in prose) — neither is a policy citation, but `0.80` in particular is a bare decimal that a loosely-written numeric regex could misfire on. No section-number-shaped false positives observed in n=2, but the risk is real given the prompt schema places no constraints on how numbers appear in prose.
+### 2\. Tier 3 narrative: fixed templates, confirmed from code
 
-### Conclusion
+No real Tier 3 narratives exist to sample because the path is deterministic. Code review shows:
 
-**Regex-only extraction, as originally scoped, will undercount** — both real samples confirm the spike's hypothesis rather than ruling it out: exact or prefix-token matching against `policy_refs` fails on Sample B entirely and only partially succeeds on Sample A. Prose-only/paraphrased references (policy named but not ID-matched, e.g. "GDPR" vs. `GDPR-001`) are common enough in n=2 that they can't be treated as a rare edge case. A hybrid approach — regex for the subset of narratives that do contain a recognizable token, falling back to semantic similarity between narrative sentences and the actual `policy_refs` content/titles for the rest — is better supported by the evidence than a pure regex extractor. Tier 3 needs an unconditional skip (no narrative-grounding check is meaningful there), which is a cheap, unambiguous guard to add regardless of which extraction approach is chosen.
+-   **Transaction path** (`ThreatAnalysisService.php:11-18,36`, via `TransactionProcessorService.php:171`): one of two templates, `"High value transaction at {merchant} (${amount})"` or `"Layer 7 Clear: {merchant} - OK"`. `policy_refs` is hardcoded to `[]` (`TransactionProcessorService.php:173`).
+-   **Axiom/anomaly path** (`AxiomThreatAnalysisService.php:23`): `"Rule-based fallback: anomaly score {score} exceeds audit threshold {threshold} for domain {domain} — AI analysis unavailable."`
 
-**Confidence caveat (superseded below):** the above rests on n=2 real samples plus full code-level certainty on Tier 3. Directionally strong but not statistically robust on its own — resolved by generating fresh live traffic, see next section.
+Both are string interpolation of structured fields, never natural-language citations. The heuristic should skip Tier 3 unconditionally instead of running a regex over text that cannot contain a citation.
 
----
+**`source: fallback` covers two different cases.** The code analysis above describes the first. The live run surfaced the second:
 
-## Live run addendum (n=49)
+1.  The AI driver is never reached (embedding or cache failure), so RAG is skipped.
+2.  RAG is consulted (empty), and the chat-model call then fails. Both excluded fallback rows were this case, most likely an OpenRouter free-tier rate limit near the end of a roughly 50-request burst.
 
-**Date:** 2026-08-01, same day, follow-up to close the n=2 confidence gap.
+Both are labeled identically in `source`, so anything that branches on that field should account for it.
 
-Generated 49 fresh real Tier 2 samples by running `php artisan sentinel:stream --limit=50` against a live `sentinel:watch` consumer, with a temporary `Log::info('ARBITER_SPIKE_SAMPLE', $result)` added to `WatchTransactions::processMessage()` to capture full `narrative`/`policy_refs`/`risk_level`/`confidence` per transaction (reverted after data collection — see below). Getting a working AI driver took three attempts: `OLLAMA_URL` (private Tailscale IP) is unreachable from a sandboxed environment; `SENTINEL_AI_DRIVER=gemini` is quota-exhausted on the free tier (`limit: 0`, not transient); `OPENROUTER_MODEL=meta-llama/llama-3.3-8b-instruct:free` no longer has any endpoints on OpenRouter. Settled on `SENTINEL_AI_DRIVER=openrouter` with `OPENROUTER_MODEL=openai/gpt-oss-20b:free`, confirmed working, then ran the batch. All temporary `.env`/code changes reverted immediately after data capture (see "Cleanup" below) — this addendum does not change Sentinel-L7's live driver configuration.
+### 3\. Correspondence with `policy_refs`: none
 
-### Result: 49/49 usable, 0 duplicates or errors
+-   **Live batch:** 0 of 18 non-empty `policy_refs` had any value verbatim in the narrative.
+-   **Stored data:** Sample A matched partially (suffixed), Sample B not at all.
 
-`source: cache_miss` (real AI call, not cache or fallback) for 49 of the 51 total processed; 2 were leftover Tier 3 fallback rows from before the driver fix and excluded from analysis.
+Prose-only and paraphrased references are the norm, not an edge case.
 
-### The zero-verbatim-match finding from n=2 holds at n=49 — even more starkly
+### 4\. False-positive risk: present
 
-Of the 49 real samples, **18 had a non-empty `policy_refs`; 0 of those 18 had any `policy_refs` value appear verbatim anywhere in the narrative text.** Not "mostly missed" — zero matches, full stop. Representative pairs:
+Sample A contains `$100` and `0.80` (the anomaly-score threshold restated in prose). Neither is a citation, and a bare decimal like `0.80` could trip a loosely written numeric regex. No section-number-shaped false positives were observed, but the prompt schema places no constraints on how numbers appear in prose.
 
-> narrative: "The transaction involves a remittance service named 'RapidRemit Structuring Node' with an amount below $10,000, raising moderate concerns about potential structuring activity."
-> policy_refs: `["Anti-Money Laundering (AML) Policy", "Structuring Policy"]`
+### 5\. New: `policy_refs` is fabricated, not retrieved
 
-> narrative: "This is a small retail purchase at a local farm market with no indicators of suspicious activity."
-> policy_refs: `["Retail Transaction Policy"]`
+This was not one of the original four questions.
 
-The narrative never names the policy by its `policy_refs` title — it describes the *situation* (structuring concern, no red flags) while `policy_refs` is a separately-generated categorical tag. There is no citation token anywhere in this batch — no `§`, no `Section N`, no formal ID like `AML-BSA-001` (those did appear in the earlier n=2 pull, see below for why). This confirms question 1 and question 3 from the original spike checklist definitively: **regex extraction against `policy_refs` values has a 0% hit rate on this batch.**
+-   The RAG retrieval log (`AbstractComplianceDriver::fetchPolicyContext`) has 57 `policy RAG retrieval` lines, and **`chunk_count: 0` in every one**.
+-   Processing is single-threaded and sequential, so each RAG line sits immediately before its own result line. Pairing them chronologically accounts for all 57: 6 are manual `tinker` calls made while debugging drivers, and the other 51 map 1:1 to the watcher-processed transactions, including both fallback rows.
+-   The `policies` Upstash Vector namespace holds only 4 chunks, and none cleared the 0.70 similarity threshold for any of these queries. The prompt sent to the model said `"No specific policy context retrieved."` on every call, across every driver tried (Ollama, Gemini, OpenRouter).
+-   The model still produced a plausible `policy_refs` title on 18 of 49 successful calls, at an **average stated confidence of 0.88** (range 0.6 to 0.95).
 
-`policy_refs` itself is also not a stable vocabulary across calls — 10 distinct strings for what is clearly a handful of underlying concepts, including a straight Unicode inconsistency (`Anti-Money Laundering (AML) Policy` vs `Anti‑Money Laundering Policy`, the second using U+2011 non-breaking hyphen instead of U+002D). A regex set tuned to one phrasing will miss its own near-duplicates.
+## Limits of this evidence
 
-### New, more consequential finding: `policy_refs` is fabricated, not retrieved, in this batch
+-   **Risk-level skew.** The live batch was 44 low, 5 medium, 0 high, 0 critical, because the synthetic stream is mostly small routine purchases. The earlier pull added one medium. No critical sample exists in either dataset, so citation behavior where narratives may be denser with regulatory language is unverified.
+-   **Single model.** The live batch used one free-tier model (`openai/gpt-oss-20b:free`). Other drivers may phrase narratives differently.
+-   **Empty retrieval.** Because RAG returned nothing, this run cannot say how narratives cite policy when retrieval works. The 0% match rate may partly reflect that.
 
-Checked the RAG retrieval log line (`AbstractComplianceDriver::fetchPolicyContext`) across the session: **57 total `policy RAG retrieval` log lines, `chunk_count: 0` in every single one, no exceptions.** Verified precisely by pairing each RAG-retrieval line with its adjacent `ARBITER_SPIKE_SAMPLE` line in strict chronological order (processing is single-threaded and sequential, so each transaction's RAG line is immediately followed by its own result line): 6 of the 57 are manual `tinker` diagnostic calls made while debugging which AI driver would actually work (not part of the batch); the remaining **51 correspond 1:1 to all 51 watcher-processed transactions — including both of the 2 rows that ultimately fell back to Tier 3.**
+## Cleanup
 
-That second point matters and corrects an earlier imprecise claim in this addendum's first draft: both fallback rows *did* reach `fetchPolicyContext` (and logged `chunk_count: 0`) before failing later, at the chat-model call itself — almost certainly an OpenRouter free-tier rate-limit hiccup near the end of a ~50-request burst, not an embedding/vector-search-level failure. So `source: fallback` in this codebase isn't monolithic: it covers both "never reached the AI driver at all" (embedding/cache failure, skips RAG entirely — the general case this spike's Tier 3 code analysis describes) *and* "reached RAG and the model call, but the model call itself failed" (RAG was consulted, still empty, then Tier 3 substituted anyway). Both are labeled identically in the `source` field, which is worth knowing before building anything that branches on it.
+All temporary changes were reverted immediately after data capture. Sentinel-L7's live driver configuration is unchanged.
 
-The `policies` Upstash Vector namespace only holds 4 chunks total (see original n=2 findings' `/info` call) and apparently none cleared the 0.70 similarity threshold for any of these transaction queries — the prompt sent to the model literally said `"No specific policy context retrieved."` in every case, across every driver tried (Ollama, Gemini, OpenRouter). The model fabricated a plausible-sounding `policy_refs` title anyway on 18/49 successful calls, at an average stated confidence of **0.88** (range 0.6–0.95) — high confidence on a citation that cites nothing real.
-
-This is a bigger problem for the proposed heuristic than citation formatting: **`policy_refs` cannot be trusted as ground truth to check the narrative against, because `policy_refs` itself isn't reliably grounded in retrieved policy content.** A narrative-grounding heuristic built purely on "does narrative cite policy_refs" inherits this — it would be checking one hallucination-prone field against another. This wasn't in the original spike's four check questions and is flagged here as a new open question for whoever scopes the heuristic build, not resolved by this spike.
-
-### Coverage gap acknowledged
-
-This batch skews low-risk: 44 `low` / 5 `medium` / 0 `high` / 0 `critical`, because the synthetic stream's transaction mix is mostly small routine purchases. The original spike explicitly asked for risk_level diversity including high/critical. The earlier n=2 pull (Upstash Vector `transactions` namespace) did include one `medium`-with-sanctions-language sample; still, no `critical` example exists in either dataset. Citation behavior at the high/critical end (where narratives may be denser with regulatory language) remains unverified.
-
-### Cleanup performed after data capture
-
-- `sentinel-l7/.env`: `SENTINEL_EMBEDDING_DRIVER`, `SENTINEL_AI_DRIVER`, `OPENROUTER_MODEL` reverted to their original values (`ollama`, `ollama`, `meta-llama/llama-3.3-8b-instruct:free`).
-- `sentinel-l7/app/Console/Commands/WatchTransactions.php`: temporary `Log::info('ARBITER_SPIKE_SAMPLE', ...)` line removed.
-- No changes committed to Sentinel-L7's repo; `.env` was never tracked by git.
-
-### Revised conclusion
-
-Hybrid regex + semantic-similarity extraction (from the n=2 conclusion) still stands, now backed by n=49 showing a 0% verbatim-match rate rather than n=2's partial evidence. Additionally: **before building the extractor, confirm whether `policy_refs` should be treated as ground truth at all** — this run showed the model asserts confident `policy_refs` values even with zero retrieved policy context, which undermines using `policy_refs` as the target the narrative-grounding heuristic checks against. Recommend a follow-up spike (or fold into the same build) checking `policy_refs` fabrication rate against `chunk_count` from the RAG retrieval log before finalizing the heuristic's design.
+-   `sentinel-l7/.env`: `SENTINEL_EMBEDDING_DRIVER`, `SENTINEL_AI_DRIVER` and `OPENROUTER_MODEL` restored to `ollama`, `ollama` and `meta-llama/llama-3.3-8b-instruct:free`.
+-   `WatchTransactions.php`: temporary `Log::info` line removed.
+-   Nothing committed to the Sentinel-L7 repo; `.env` was never tracked.
