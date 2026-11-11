@@ -419,7 +419,7 @@ Grafana monitoring stack, not a bespoke dashboard.
 
 ### 📊 Grafana Dashboard
 
-> [!INFO]
+> [!TIP]
 > Live telemetry, not a static snapshot — the exact split across Ollama/Flash/fallback will shift each time this runs. Two things it doesn't show yet are tracked openly rather than left implicit: **Judge Chain Errors** doesn't yet break out `exception.type`/`exception.message` as columns, and the `gemini_flash` outcome gap noted in [🐛 Known Issues](#-known-issues) is still unconfirmed. Both are tracked in [🗺️ Roadmap](#-roadmap).
 
 <p align="center">
